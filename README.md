@@ -3,7 +3,8 @@
 A risk layer for AI-agent-initiated transactions. See `docs/SPEC.md` for
 the full problem framing and design reasoning.
 
-## How the pieces actually connect (this matters)
+## How the pieces actually connect 
+
 
 This is one system, not separate scripts:
 
