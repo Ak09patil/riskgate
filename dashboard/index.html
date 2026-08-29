@@ -1,0 +1,1682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RiskGate — Agent Transaction Risk Layer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%235eff9d'/%3E%3Crect x='6' y='6' width='12' height='12' rx='2' fill='%2308090b'/%3E%3C/svg%3E">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+  :root {
+    --bg: #08090b;
+    --panel: #0e1013;
+    --panel-2: #131619;
+    --line: #22262b;
+    --line-bright: #34393f;
+    --ink: #eef0f2;
+    --muted: #7a8189;
+    --dim: #4a5058;
+    --go: #5eff9d;
+    --go-dim: #1c3d2b;
+    --go-glow: rgba(94,255,157,0.18);
+    --stop: #ff5c5c;
+    --stop-dim: #3d1c1c;
+    --stop-glow: rgba(255,92,92,0.18);
+    --amber: #ffb454;
+    --amber-dim: #3d2f1c;
+    --amber-glow: rgba(255,180,84,0.16);
+    --mono: 'JetBrains Mono', Consolas, monospace;
+    --display: 'Space Grotesk', -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--display); -webkit-font-smoothing: antialiased;
+    background-image:
+      radial-gradient(ellipse 900px 500px at 15% -10%, rgba(94,255,157,0.05), transparent),
+      radial-gradient(ellipse 700px 400px at 100% 0%, rgba(255,92,92,0.04), transparent);
+  }
+  .shell { max-width: 1100px; margin: 0 auto; padding: 36px 24px 90px; }
+
+  header.top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .brand { display: flex; align-items: center; gap: 11px; }
+  .brand .mark {
+    width: 22px; height: 22px; border-radius: 5px;
+    background: linear-gradient(135deg, var(--go), #2fd97a);
+    box-shadow: 0 0 16px var(--go-glow);
+    position: relative;
+  }
+  .brand .mark::after {
+    content: ''; position: absolute; inset: 5px; border-radius: 2px; background: var(--bg);
+  }
+  .brand h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
+  .live-pill {
+    display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10.5px;
+    color: var(--muted); background: var(--panel); border: 1px solid var(--line);
+    padding: 5px 10px 5px 8px; border-radius: 100px; letter-spacing: 0.03em;
+  }
+  .live-pill .blip { width: 6px; height: 6px; border-radius: 50%; background: var(--go); animation: blip 1.6s ease-in-out infinite; }
+  @keyframes blip { 0%,100%{opacity:1; box-shadow:0 0 0 0 var(--go-glow)} 50%{opacity:0.5} }
+
+  .subhead { font-family: var(--mono); font-size: 12px; color: var(--dim); margin: 0 0 28px; letter-spacing: 0.02em; }
+
+  /* hero */
+  .hero {
+    border: 1px solid var(--line); border-radius: 14px; padding: 34px 32px;
+    margin-bottom: 30px; position: relative; overflow: hidden;
+    background: linear-gradient(160deg, var(--panel) 0%, var(--bg) 100%);
+  }
+  .hero::before {
+    content: ''; position: absolute; top: -40%; right: -10%; width: 380px; height: 380px;
+    background: radial-gradient(circle, var(--go-glow), transparent 70%); pointer-events: none;
+  }
+  .hero-eyebrow {
+    font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.06em;
+    text-transform: uppercase; margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+  }
+  .hero-eyebrow::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--go); box-shadow: 0 0 8px var(--go-glow); }
+  .hero h2 {
+    font-size: 27px; font-weight: 600; line-height: 1.35; letter-spacing: -0.01em;
+    margin: 0 0 14px; max-width: 700px; position: relative;
+  }
+  .hero h2 .strike { color: var(--dim); text-decoration: line-through; text-decoration-color: var(--stop); text-decoration-thickness: 2px; }
+  .hero h2 .go-text { color: var(--go); font-weight: 600; }
+  .hero p.hero-sub { font-size: 13.5px; color: var(--muted); line-height: 1.6; max-width: 620px; margin: 0; position: relative; }
+
+  nav.tabs { display: flex; gap: 3px; margin-bottom: 26px; border-bottom: 1px solid var(--line); padding-bottom: 0; }
+  nav.tabs button {
+    font-family: var(--mono); font-size: 12.5px; font-weight: 500; letter-spacing: 0.02em;
+    padding: 11px 4px; margin-right: 22px; border: none; border-bottom: 2px solid transparent;
+    background: transparent; color: var(--dim); cursor: pointer; transition: all 0.15s ease;
+  }
+  nav.tabs button:hover { color: var(--muted); }
+  nav.tabs button.active { color: var(--ink); border-bottom-color: var(--go); }
+
+  .view { display: none; }
+  .view.active { display: block; animation: fade 0.3s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .lede { font-size: 13.5px; color: var(--muted); max-width: 640px; line-height: 1.6; margin-bottom: 22px; }
+  .lede b { color: var(--ink); font-weight: 600; }
+
+  /* consumer cards */
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; margin-bottom: 10px; transition: border-color 0.2s ease;
+    animation: cardIn 0.4s ease backwards;
+  }
+  @keyframes cardIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .card:hover { border-color: var(--line-bright); }
+  .card-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .card .agent-line { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-bottom: 6px; letter-spacing: 0.02em; }
+  .card .item-line { font-size: 14.5px; font-weight: 600; }
+  .card .price { font-family: var(--mono); font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+  .badge {
+    font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 5px 10px; border-radius: 5px; white-space: nowrap; border: 1px solid transparent;
+  }
+  .badge.approve { background: var(--go-dim); color: var(--go); border-color: rgba(94,255,157,0.25); }
+  .badge.fraud { background: var(--stop-dim); color: var(--stop); border-color: rgba(255,92,92,0.25); }
+  .badge.confirm, .badge.mismatch { background: var(--amber-dim); color: var(--amber); border-color: rgba(255,180,84,0.25); }
+  .reason { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.55; border-top: 1px dashed var(--line); padding-top: 10px; }
+
+  /* merchant table */
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  thead th {
+    text-align: left; font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--dim); font-weight: 600; padding: 9px 10px; border-bottom: 1px solid var(--line);
+  }
+  tbody td { padding: 11px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tbody tr { animation: rowIn 0.35s ease backwards; }
+  @keyframes rowIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  tbody tr:hover { background: rgba(255,255,255,0.015); }
+  .mono { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .score-bar { display: flex; align-items: center; gap: 7px; }
+  .score-bar .track { width: 48px; height: 4px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .score-bar .fill { height: 100%; background: var(--go); box-shadow: 0 0 6px var(--go-glow); }
+  .score-bar .fill.high-risk { background: var(--stop); box-shadow: 0 0 6px var(--stop-glow); }
+
+  /* razorpay aggregate view */
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 26px; }
+  .stat {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 16px;
+    position: relative; overflow: hidden;
+  }
+  .stat::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--stat-color, var(--dim));
+  }
+  .stat .num { font-family: var(--mono); font-size: 25px; font-weight: 700; letter-spacing: -0.02em; }
+  .stat .label { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-top: 5px; letter-spacing: 0.02em; }
+  .stat.approve { --stat-color: var(--go); } .stat.approve .num { color: var(--go); }
+  .stat.fraud { --stat-color: var(--stop); } .stat.fraud .num { color: var(--stop); }
+  .stat.confirm, .stat.mismatch { --stat-color: var(--amber); }
+  .stat.confirm .num, .stat.mismatch .num { color: var(--amber); }
+
+  /* live simulation — signature element */
+  .sim-panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 24px 26px; margin-bottom: 26px; position: relative; overflow: hidden;
+  }
+  .sim-panel::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none; opacity: 0;
+    background: linear-gradient(180deg, transparent, var(--go-glow) 50%, transparent);
+    transform: translateY(-100%);
+  }
+  .sim-panel.scanning::before { animation: scan 2.1s ease-in-out; }
+  @keyframes scan { 0%{transform:translateY(-100%); opacity:0} 15%{opacity:1} 85%{opacity:1} 100%{transform:translateY(100%); opacity:0} }
+
+  .sim-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .sim-head h2 { font-family: var(--mono); font-size: 12.5px; margin: 0; font-weight: 600; letter-spacing: 0.03em; color: var(--muted); text-transform: uppercase; }
+  .sim-btn {
+    font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 0.02em; color: var(--bg);
+    background: var(--go); border: none; padding: 10px 18px; border-radius: 7px;
+    cursor: pointer; transition: all 0.15s ease; box-shadow: 0 0 20px var(--go-glow);
+  }
+  .sim-btn:hover { transform: translateY(-1px); box-shadow: 0 0 26px var(--go-glow); }
+  .sim-btn:active { transform: scale(0.97); }
+  .sim-btn:disabled { opacity: 0.35; cursor: default; box-shadow: none; transform: none; }
+  .sim-sub { font-size: 12.5px; color: var(--dim); margin-bottom: 18px; }
+
+  .sim-order-line { font-family: var(--mono); font-size: 12.5px; color: var(--ink); min-height: 18px; margin-bottom: 16px; }
+  .sim-steps { display: flex; flex-direction: column; gap: 11px; }
+  .sim-step {
+    display: grid; grid-template-columns: 8px 172px 1fr 56px; align-items: center; gap: 14px;
+    font-family: var(--mono); font-size: 12px; color: var(--dim); opacity: 0.3; transition: opacity 0.3s ease;
+  }
+  .sim-step.active { opacity: 1; color: var(--muted); }
+  .sim-step .dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--line); transition: all 0.3s ease;
+  }
+  .sim-step.active .dot { background: var(--go); box-shadow: 0 0 8px var(--go-glow); }
+  .sim-step .track { height: 5px; background: var(--bg); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+  .sim-step .fill { height: 100%; width: 0%; background: var(--go); box-shadow: 0 0 8px var(--go-glow); transition: width 0.55s cubic-bezier(.2,.9,.3,1); }
+  .sim-step .fill.risk-fill { background: var(--stop); box-shadow: 0 0 8px var(--stop-glow); }
+  .sim-step .val { font-family: var(--mono); text-align: right; color: var(--ink); }
+  .sim-result {
+    margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--line);
+    font-size: 13px; color: var(--muted); line-height: 1.5; opacity: 0; transition: opacity 0.4s ease; min-height: 20px;
+  }
+  .sim-result.show { opacity: 1; }
+  .sim-result .badge { margin-right: 10px; }
+
+  .bar-chart { display: flex; flex-direction: column; gap: 11px; margin-top: 10px; }
+  .bar-row { display: grid; grid-template-columns: 165px 1fr 46px; align-items: center; gap: 12px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .bar-track { height: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+  .bar-fill { height: 100%; transition: width 0.8s cubic-bezier(.2,.9,.3,1); }
+  .bar-fill.approve { background: var(--go); box-shadow: 0 0 10px var(--go-glow) inset; }
+  .bar-fill.fraud { background: var(--stop); box-shadow: 0 0 10px var(--stop-glow) inset; }
+  .bar-fill.confirm { background: var(--amber); box-shadow: 0 0 10px var(--amber-glow) inset; }
+  .bar-fill.mismatch { background: #d99a3f; }
+  .bar-count { font-family: var(--mono); text-align: right; color: var(--ink); }
+
+  .section-title {
+    font-family: var(--mono); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--dim); margin: 30px 0 14px;
+  }
+  .audit-note {
+    background: var(--go-dim); border: 1px solid rgba(94,255,157,0.2); border-radius: 10px;
+    padding: 15px 18px; font-size: 12.5px; line-height: 1.6; color: var(--go); margin-top: 22px;
+  }
+
+  /* merchant filter pills */
+  #merchant-filters { border-bottom: none; margin-bottom: 18px; }
+  #merchant-filters button {
+    font-family: var(--mono); font-size: 11.5px; padding: 7px 13px; margin-right: 8px;
+    border: 1px solid var(--line); border-radius: 100px; background: var(--panel); color: var(--dim);
+  }
+  #merchant-filters button.active { background: var(--go-dim); color: var(--go); border-color: rgba(94,255,157,0.3); }
+
+  /* fraud review mockup */
+  .review-card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 24px 26px; max-width: 560px;
+  }
+  .review-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+  .review-header .oid { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  .review-header .amount { font-family: var(--mono); font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .review-signals { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+  .review-signal { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; }
+  .review-signal .label { color: var(--muted); }
+  .review-signal .value { font-family: var(--mono); color: var(--ink); }
+  .review-signal .value.flag { color: var(--stop); }
+  .review-actions { display: flex; gap: 10px; }
+  .review-btn {
+    flex: 1; font-family: var(--mono); font-size: 12px; font-weight: 600; padding: 11px; border-radius: 8px;
+    border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer;
+  }
+  .review-btn.approve { color: var(--go); border-color: rgba(94,255,157,0.3); }
+  .review-btn.approve:hover { background: var(--go-dim); }
+  .review-btn.reject { color: var(--stop); border-color: rgba(255,92,92,0.3); }
+  .review-btn.reject:hover { background: var(--stop-dim); }
+
+  /* tooltips on score bars */
+  .score-bar { position: relative; }
+  .score-bar[data-tip]:hover::after {
+    content: attr(data-tip); position: absolute; bottom: 130%; left: 50%; transform: translateX(-50%);
+    background: var(--panel-2); border: 1px solid var(--line-bright); color: var(--ink);
+    font-family: var(--mono); font-size: 10.5px; padding: 6px 9px; border-radius: 6px;
+    white-space: nowrap; z-index: 10; pointer-events: none;
+  }
+
+  /* responsive */
+  @media (max-width: 720px) {
+    .shell { padding: 24px 16px 70px; }
+    .hero { padding: 24px 20px; }
+    .hero h2 { font-size: 21px; }
+    .stat-grid { grid-template-columns: repeat(2, 1fr); }
+    .sim-step { grid-template-columns: 8px 1fr 50px; grid-template-areas: "dot label label" "dot track val"; row-gap: 4px; }
+    .sim-step > div:nth-child(2) { grid-area: label; }
+    .sim-step > .track { grid-area: track; }
+    .sim-step > .val { grid-area: val; }
+    table { display: block; overflow-x: auto; white-space: nowrap; }
+    nav.tabs button { margin-right: 14px; font-size: 11.5px; }
+    .bar-row { grid-template-columns: 110px 1fr 40px; font-size: 10.5px; }
+    .flow { flex-direction: column; align-items: stretch; gap: 14px; padding: 20px; }
+    .flow-line { display: none; }
+    .flow-node { flex-direction: row; justify-content: flex-start; text-align: left; gap: 12px; }
+    .flow-node .label { max-width: none; }
+  }
+  /* live activity ticker — real scored transactions, scrolling */
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="top">
+    <div class="brand"><span class="mark"></span><h1>RiskGate</h1></div>
+    <div class="live-pill"><span class="blip"></span>4,000 txns scored</div>
+  </header>
+  <p class="subhead">// agent-transaction risk layer — fraud, intent-match &amp; preference-fit, gated</p>
+
+  <div class="hero">
+    <div class="hero-eyebrow">the problem</div>
+    <h2>Every payment used to have a human typing a PIN to confirm it.<br>Agentic checkout removes that moment — <span class="go-text">RiskGate replaces it.</span></h2>
+    <p class="hero-sub">When an AI agent buys on someone's behalf, it can be fully authorized and still get it wrong — wrong size, over budget, misread intent. That's not fraud. Nobody's scoring for it. RiskGate does, alongside classic fraud-risk, so the gate knows the difference.</p>
+  </div>
+
+  <nav class="tabs">
+    <button class="active" data-view="consumer">Consumer</button>
+    <button data-view="merchant">Merchant</button>
+    <button data-view="razorpay">Razorpay</button>
+    <button data-view="review">Fraud queue</button>
+  </nav>
+
+  <!-- CONSUMER VIEW -->
+  <section class="view active" id="consumer">
+    <p class="lede">What your <b>shopping agent</b> did on your behalf, and why each order was approved, held, or flagged for your confirmation.</p>
+    <div id="consumer-list"></div>
+  </section>
+
+  <!-- MERCHANT VIEW -->
+  <section class="view" id="merchant">
+    <p class="lede">Incoming agent-initiated orders, scored across <b>fraud-risk</b> and <b>intent-match</b> confidence, with the signals behind every decision.</p>
+    <nav class="tabs" id="merchant-filters">
+      <button class="active" data-filter="ALL">All</button>
+      <button data-filter="AUTO_APPROVE">Approved</button>
+      <button data-filter="HOLD_FRAUD_REVIEW">Fraud review</button>
+      <button data-filter="HOLD_CONFIRM_WITH_HUMAN">Confirm</button>
+      <button data-filter="HOLD_LIKELY_MISMATCH">Mismatch</button>
+    </nav>
+    <table>
+      <thead>
+        <tr><th>Order</th><th>Category</th><th>Value</th><th>Fraud risk</th><th>Intent match</th><th>Decision</th></tr>
+      </thead>
+      <tbody id="merchant-rows"></tbody>
+    </table>
+  </section>
+
+  <!-- RAZORPAY VIEW -->
+  <section class="view" id="razorpay">
+    <p class="lede">Aggregate view across all agent-initiated transactions — the audit trail behind every explainable, bounded, gated decision.</p>
+
+    <div class="sim-panel" id="sim-panel">
+      <div class="sim-head">
+        <h2>Live simulation — full loop</h2>
+        <button class="sim-btn" id="sim-run">Run new transaction ▸</button>
+      </div>
+      <div class="sim-sub">A human intent goes to the shopping agent, which proposes a purchase — then RiskGate scores and gates it.</div>
+      <div class="sim-order-line" id="sim-order-line">No transaction run yet.</div>
+      <div class="sim-order-line" id="sim-proposal-line" style="color: var(--muted); margin-top: -12px;"></div>
+      <div class="sim-steps">
+        <div class="sim-step" id="step-fraud">
+          <div class="dot"></div>
+          <div>fraud_risk_score</div>
+          <div class="track"><div class="fill risk-fill" id="fill-fraud"></div></div>
+          <div class="val" id="val-fraud">—</div>
+        </div>
+        <div class="sim-step" id="step-intent">
+          <div class="dot"></div>
+          <div>intent_match_confidence</div>
+          <div class="track"><div class="fill" id="fill-intent"></div></div>
+          <div class="val" id="val-intent">—</div>
+        </div>
+        <div class="sim-step" id="step-pref">
+          <div class="dot"></div>
+          <div>preference_fit_score</div>
+          <div class="track"><div class="fill" id="fill-pref"></div></div>
+          <div class="val" id="val-pref">—</div>
+        </div>
+      </div>
+      <div class="sim-result" id="sim-result"></div>
+    </div>
+
+    <div class="stat-grid" id="stat-grid"></div>
+    <div class="section-title">// decision distribution</div>
+    <div class="bar-chart" id="bar-chart"></div>
+    <div class="audit-note">
+      Every decision above is logged with the exact scores and reasoning that produced it —
+      no black-box calls. Fraud-risk and intent-match scores are trained, validated models
+      (precision/recall reported on held-out test data); preference-fit is an explicit
+      heuristic layer, not overclaimed as statistically validated.
+    </div>
+    <div class="audit-note" style="background: var(--amber-dim); border-color: rgba(255,180,84,0.25); color: var(--amber); margin-top: 10px;">
+      Note on thresholds: this demo gates fraud at 0.5 — a business-realistic
+      choice. Our reported metrics use a separately F2-optimized threshold
+      (0.3), which favors catching fraud but pushes the false-positive rate
+      to ~68%. Those are two different, intentional numbers for two
+      different purposes — see the README for the full reasoning.
+    </div>
+  </section>
+  <!-- FRAUD REVIEW VIEW -->
+  <section class="view" id="review">
+    <p class="lede">What a fraud analyst sees for a held transaction — the full signal breakdown behind the score, not just a number.</p>
+    <div class="review-card" id="review-card"></div>
+  </section>
+
+</div>
+
+<script id="demo-data" type="application/json">[
+  {
+    "order_id": "e1c51962",
+    "user_id": "user_398",
+    "agent_id": "agent_46",
+    "order_category": "footwear",
+    "order_price": 7104.86,
+    "intent_category": "footwear",
+    "intent_max_price": 7198.41,
+    "payment_mode": "COD",
+    "pincode": 500016,
+    "timestamp": "2026-03-07T05:11:00",
+    "fraud_risk_score": 0.482,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.68,
+    "decision": "AUTO_APPROVE",
+    "reason": "Low fraud-risk (0.48) and high intent-match confidence (0.72) \u2014 auto-approved."
+  },
+  {
+    "order_id": "972bec47",
+    "user_id": "user_402",
+    "agent_id": "agent_42",
+    "order_category": "electronics",
+    "order_price": 3951.2,
+    "intent_category": "electronics",
+    "intent_max_price": 5523.6,
+    "payment_mode": "COD",
+    "pincode": 500010,
+    "timestamp": "2026-01-28T18:21:00",
+    "fraud_risk_score": 0.4,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.16,
+    "decision": "AUTO_APPROVE",
+    "reason": "Low fraud-risk (0.40) and high intent-match confidence (0.72) \u2014 auto-approved."
+  },
+  {
+    "order_id": "c5522132",
+    "user_id": "user_280",
+    "agent_id": "agent_6",
+    "order_category": "footwear",
+    "order_price": 5250.22,
+    "intent_category": "footwear",
+    "intent_max_price": 6355.47,
+    "payment_mode": "prepaid",
+    "pincode": 500016,
+    "timestamp": "2026-03-18T21:15:00",
+    "fraud_risk_score": 0.278,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.67,
+    "decision": "AUTO_APPROVE",
+    "reason": "Low fraud-risk (0.28) and high intent-match confidence (0.72) \u2014 auto-approved."
+  },
+  {
+    "order_id": "2d7263de",
+    "user_id": "user_209",
+    "agent_id": "agent_25",
+    "order_category": "fashion",
+    "order_price": 1735.63,
+    "intent_category": "fashion",
+    "intent_max_price": 2109.39,
+    "payment_mode": "COD",
+    "pincode": 50007,
+    "timestamp": "2026-02-26T10:37:00",
+    "fraud_risk_score": 0.433,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.29,
+    "decision": "AUTO_APPROVE",
+    "reason": "Low fraud-risk (0.43) and high intent-match confidence (0.72) \u2014 auto-approved."
+  },
+  {
+    "order_id": "bb041f48",
+    "user_id": "user_476",
+    "agent_id": "agent_29",
+    "order_category": "electronics",
+    "order_price": 4809.22,
+    "intent_category": "electronics",
+    "intent_max_price": 4931.87,
+    "payment_mode": "prepaid",
+    "pincode": 50006,
+    "timestamp": "2026-02-07T01:55:00",
+    "fraud_risk_score": 0.376,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.098,
+    "decision": "AUTO_APPROVE",
+    "reason": "Low fraud-risk (0.38) and high intent-match confidence (0.72) \u2014 auto-approved."
+  },
+  {
+    "order_id": "70c1e202",
+    "user_id": "user_23",
+    "agent_id": "agent_16",
+    "order_category": "flights",
+    "order_price": 2183.94,
+    "intent_category": "flights",
+    "intent_max_price": 3302.43,
+    "payment_mode": "prepaid",
+    "pincode": 500010,
+    "timestamp": "2026-05-02T11:12:00",
+    "fraud_risk_score": 0.206,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.024,
+    "decision": "AUTO_APPROVE",
+    "reason": "Low fraud-risk (0.21) and high intent-match confidence (0.72) \u2014 auto-approved."
+  },
+  {
+    "order_id": "66d0ab05",
+    "user_id": "user_213",
+    "agent_id": "agent_55",
+    "order_category": "electronics",
+    "order_price": 6047.9,
+    "intent_category": "electronics",
+    "intent_max_price": 6385.73,
+    "payment_mode": "prepaid",
+    "pincode": 500019,
+    "timestamp": "2026-02-21T23:16:00",
+    "fraud_risk_score": 0.339,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.106,
+    "decision": "AUTO_APPROVE",
+    "reason": "Low fraud-risk (0.34) and high intent-match confidence (0.72) \u2014 auto-approved."
+  },
+  {
+    "order_id": "b74d4fcc",
+    "user_id": "user_401",
+    "agent_id": "agent_19",
+    "order_category": "electronics",
+    "order_price": 556.11,
+    "intent_category": "electronics",
+    "intent_max_price": 869.41,
+    "payment_mode": "prepaid",
+    "pincode": 50005,
+    "timestamp": "2026-05-17T01:14:00",
+    "fraud_risk_score": 0.177,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.05,
+    "decision": "AUTO_APPROVE",
+    "reason": "Low fraud-risk (0.18) and high intent-match confidence (0.72) \u2014 auto-approved."
+  },
+  {
+    "order_id": "ec133027",
+    "user_id": "user_18",
+    "agent_id": "agent_55",
+    "order_category": "groceries",
+    "order_price": 6192.83,
+    "intent_category": "groceries",
+    "intent_max_price": 7616.43,
+    "payment_mode": "prepaid",
+    "pincode": 50008,
+    "timestamp": "2026-04-13T01:38:00",
+    "fraud_risk_score": 0.416,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.65,
+    "decision": "AUTO_APPROVE",
+    "reason": "Low fraud-risk (0.42) and high intent-match confidence (0.72) \u2014 auto-approved."
+  },
+  {
+    "order_id": "87da2542",
+    "user_id": "user_59",
+    "agent_id": "agent_47",
+    "order_category": "electronics",
+    "order_price": 1422.14,
+    "intent_category": "electronics",
+    "intent_max_price": 1784.68,
+    "payment_mode": "COD",
+    "pincode": 500015,
+    "timestamp": "2026-01-17T15:06:00",
+    "fraud_risk_score": 0.401,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.76,
+    "decision": "AUTO_APPROVE",
+    "reason": "Low fraud-risk (0.40) and high intent-match confidence (0.72) \u2014 auto-approved."
+  },
+  {
+    "order_id": "c823dae3",
+    "user_id": "user_312",
+    "agent_id": "agent_7",
+    "order_category": "fashion",
+    "order_price": 1776.35,
+    "intent_category": "fashion",
+    "intent_max_price": 2764.46,
+    "payment_mode": "COD",
+    "pincode": 50009,
+    "timestamp": "2026-04-01T07:05:00",
+    "fraud_risk_score": 0.353,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.056,
+    "decision": "AUTO_APPROVE",
+    "reason": "Low fraud-risk (0.35) and high intent-match confidence (0.72) \u2014 auto-approved."
+  },
+  {
+    "order_id": "bd2c9115",
+    "user_id": "user_355",
+    "agent_id": "agent_6",
+    "order_category": "home",
+    "order_price": 530.42,
+    "intent_category": "home",
+    "intent_max_price": 801.13,
+    "payment_mode": "prepaid",
+    "pincode": 50003,
+    "timestamp": "2026-02-07T14:31:00",
+    "fraud_risk_score": 0.302,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.63,
+    "decision": "AUTO_APPROVE",
+    "reason": "Low fraud-risk (0.30) and high intent-match confidence (0.72) \u2014 auto-approved."
+  },
+  {
+    "order_id": "577c1544",
+    "user_id": "user_393",
+    "agent_id": "agent_15",
+    "order_category": "groceries",
+    "order_price": 2534.78,
+    "intent_category": "groceries",
+    "intent_max_price": 2877.81,
+    "payment_mode": "COD",
+    "pincode": 50004,
+    "timestamp": "2026-02-13T22:02:00",
+    "fraud_risk_score": 0.456,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.57,
+    "decision": "AUTO_APPROVE",
+    "reason": "Low fraud-risk (0.46) and high intent-match confidence (0.72) \u2014 auto-approved."
+  },
+  {
+    "order_id": "d033186f",
+    "user_id": "user_36",
+    "agent_id": "agent_4",
+    "order_category": "groceries",
+    "order_price": 2326.07,
+    "intent_category": "groceries",
+    "intent_max_price": 3204.93,
+    "payment_mode": "COD",
+    "pincode": 500011,
+    "timestamp": "2026-01-17T02:11:00",
+    "fraud_risk_score": 0.367,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.104,
+    "decision": "AUTO_APPROVE",
+    "reason": "Low fraud-risk (0.37) and high intent-match confidence (0.72) \u2014 auto-approved."
+  },
+  {
+    "order_id": "8ec4167b",
+    "user_id": "user_479",
+    "agent_id": "agent_30",
+    "order_category": "home",
+    "order_price": 1988.29,
+    "intent_category": "home",
+    "intent_max_price": 3005.98,
+    "payment_mode": "COD",
+    "pincode": 500017,
+    "timestamp": "2026-02-20T16:23:00",
+    "fraud_risk_score": 0.467,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.172,
+    "decision": "AUTO_APPROVE",
+    "reason": "Low fraud-risk (0.47) and high intent-match confidence (0.72) \u2014 auto-approved."
+  },
+  {
+    "order_id": "fcc20e8a",
+    "user_id": "user_181",
+    "agent_id": "agent_36",
+    "order_category": "fashion",
+    "order_price": 4452.53,
+    "intent_category": "fashion",
+    "intent_max_price": 5917.7,
+    "payment_mode": "COD",
+    "pincode": 50007,
+    "timestamp": "2026-03-29T12:56:00",
+    "fraud_risk_score": 0.787,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.7,
+    "decision": "HOLD_FRAUD_REVIEW",
+    "reason": "Fraud-risk score 0.79 exceeds threshold 0.5 \u2014 held for manual fraud review."
+  },
+  {
+    "order_id": "788fea1e",
+    "user_id": "user_290",
+    "agent_id": "agent_48",
+    "order_category": "home",
+    "order_price": 11311.16,
+    "intent_category": "home",
+    "intent_max_price": 7314.36,
+    "payment_mode": "COD",
+    "pincode": 50002,
+    "timestamp": "2026-02-12T11:51:00",
+    "fraud_risk_score": 0.514,
+    "intent_match_confidence": 0.313,
+    "preference_fit_score": 0.09,
+    "decision": "HOLD_FRAUD_REVIEW",
+    "reason": "Fraud-risk score 0.51 exceeds threshold 0.5 \u2014 held for manual fraud review."
+  },
+  {
+    "order_id": "50d6ff6f",
+    "user_id": "user_71",
+    "agent_id": "agent_7",
+    "order_category": "electronics",
+    "order_price": 9709.9,
+    "intent_category": "electronics",
+    "intent_max_price": 6697.19,
+    "payment_mode": "COD",
+    "pincode": 500011,
+    "timestamp": "2026-01-06T04:42:00",
+    "fraud_risk_score": 0.833,
+    "intent_match_confidence": 0.245,
+    "preference_fit_score": 0.67,
+    "decision": "HOLD_FRAUD_REVIEW",
+    "reason": "Fraud-risk score 0.83 exceeds threshold 0.5 \u2014 held for manual fraud review."
+  },
+  {
+    "order_id": "a21ceafb",
+    "user_id": "user_413",
+    "agent_id": "agent_12",
+    "order_category": "electronics",
+    "order_price": 6093.3,
+    "intent_category": "electronics",
+    "intent_max_price": 4255.56,
+    "payment_mode": "prepaid",
+    "pincode": 50006,
+    "timestamp": "2026-04-13T15:16:00",
+    "fraud_risk_score": 0.508,
+    "intent_match_confidence": 0.249,
+    "preference_fit_score": 0.68,
+    "decision": "HOLD_FRAUD_REVIEW",
+    "reason": "Fraud-risk score 0.51 exceeds threshold 0.5 \u2014 held for manual fraud review."
+  },
+  {
+    "order_id": "4982ec59",
+    "user_id": "user_444",
+    "agent_id": "agent_4",
+    "order_category": "groceries",
+    "order_price": 1702.04,
+    "intent_category": "groceries",
+    "intent_max_price": 1809.81,
+    "payment_mode": "COD",
+    "pincode": 50003,
+    "timestamp": "2026-01-26T04:59:00",
+    "fraud_risk_score": 0.843,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.5,
+    "decision": "HOLD_FRAUD_REVIEW",
+    "reason": "Fraud-risk score 0.84 exceeds threshold 0.5 \u2014 held for manual fraud review."
+  },
+  {
+    "order_id": "3b3988c7",
+    "user_id": "user_45",
+    "agent_id": "agent_5",
+    "order_category": "electronics",
+    "order_price": 4277.69,
+    "intent_category": "electronics",
+    "intent_max_price": 5107.85,
+    "payment_mode": "prepaid",
+    "pincode": 500012,
+    "timestamp": "2026-05-12T09:25:00",
+    "fraud_risk_score": 0.673,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.192,
+    "decision": "HOLD_FRAUD_REVIEW",
+    "reason": "Fraud-risk score 0.67 exceeds threshold 0.5 \u2014 held for manual fraud review."
+  },
+  {
+    "order_id": "4cc86743",
+    "user_id": "user_361",
+    "agent_id": "agent_7",
+    "order_category": "home",
+    "order_price": 6907.84,
+    "intent_category": "home",
+    "intent_max_price": 7899.74,
+    "payment_mode": "COD",
+    "pincode": 50008,
+    "timestamp": "2026-03-05T02:23:00",
+    "fraud_risk_score": 0.629,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.024,
+    "decision": "HOLD_FRAUD_REVIEW",
+    "reason": "Fraud-risk score 0.63 exceeds threshold 0.5 \u2014 held for manual fraud review."
+  },
+  {
+    "order_id": "fdc760b7",
+    "user_id": "user_73",
+    "agent_id": "agent_27",
+    "order_category": "flights",
+    "order_price": 4012.95,
+    "intent_category": "flights",
+    "intent_max_price": 5122.32,
+    "payment_mode": "prepaid",
+    "pincode": 500020,
+    "timestamp": "2026-03-21T12:02:00",
+    "fraud_risk_score": 0.668,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.036,
+    "decision": "HOLD_FRAUD_REVIEW",
+    "reason": "Fraud-risk score 0.67 exceeds threshold 0.5 \u2014 held for manual fraud review."
+  },
+  {
+    "order_id": "b3c88960",
+    "user_id": "user_485",
+    "agent_id": "agent_39",
+    "order_category": "electronics",
+    "order_price": 6914.89,
+    "intent_category": "electronics",
+    "intent_max_price": 5748.32,
+    "payment_mode": "COD",
+    "pincode": 500019,
+    "timestamp": "2026-03-30T03:25:00",
+    "fraud_risk_score": 0.576,
+    "intent_match_confidence": 0.419,
+    "preference_fit_score": 0.47,
+    "decision": "HOLD_FRAUD_REVIEW",
+    "reason": "Fraud-risk score 0.58 exceeds threshold 0.5 \u2014 held for manual fraud review."
+  },
+  {
+    "order_id": "67085972",
+    "user_id": "user_122",
+    "agent_id": "agent_16",
+    "order_category": "flights",
+    "order_price": 8135.36,
+    "intent_category": "flights",
+    "intent_max_price": 6164.98,
+    "payment_mode": "COD",
+    "pincode": 50009,
+    "timestamp": "2026-01-12T16:23:00",
+    "fraud_risk_score": 0.823,
+    "intent_match_confidence": 0.279,
+    "preference_fit_score": 0.04,
+    "decision": "HOLD_FRAUD_REVIEW",
+    "reason": "Fraud-risk score 0.82 exceeds threshold 0.5 \u2014 held for manual fraud review."
+  },
+  {
+    "order_id": "0484ce96",
+    "user_id": "user_351",
+    "agent_id": "agent_11",
+    "order_category": "fashion",
+    "order_price": 4253.77,
+    "intent_category": "flights",
+    "intent_max_price": 3489.14,
+    "payment_mode": "COD",
+    "pincode": 50003,
+    "timestamp": "2026-02-08T14:44:00",
+    "fraud_risk_score": 0.522,
+    "intent_match_confidence": 0.179,
+    "preference_fit_score": 0.038,
+    "decision": "HOLD_FRAUD_REVIEW",
+    "reason": "Fraud-risk score 0.52 exceeds threshold 0.5 \u2014 held for manual fraud review."
+  },
+  {
+    "order_id": "1ed5f55c",
+    "user_id": "user_51",
+    "agent_id": "agent_3",
+    "order_category": "electronics",
+    "order_price": 3032.8,
+    "intent_category": "electronics",
+    "intent_max_price": 3295.27,
+    "payment_mode": "prepaid",
+    "pincode": 500019,
+    "timestamp": "2026-02-02T13:47:00",
+    "fraud_risk_score": 0.62,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.87,
+    "decision": "HOLD_FRAUD_REVIEW",
+    "reason": "Fraud-risk score 0.62 exceeds threshold 0.5 \u2014 held for manual fraud review."
+  },
+  {
+    "order_id": "5c33198e",
+    "user_id": "user_118",
+    "agent_id": "agent_23",
+    "order_category": "footwear",
+    "order_price": 516.35,
+    "intent_category": "footwear",
+    "intent_max_price": 632.52,
+    "payment_mode": "COD",
+    "pincode": 50003,
+    "timestamp": "2026-05-05T13:59:00",
+    "fraud_risk_score": 0.514,
+    "intent_match_confidence": 0.721,
+    "preference_fit_score": 0.96,
+    "decision": "HOLD_FRAUD_REVIEW",
+    "reason": "Fraud-risk score 0.51 exceeds threshold 0.5 \u2014 held for manual fraud review."
+  },
+  {
+    "order_id": "92b31017",
+    "user_id": "user_1",
+    "agent_id": "agent_9",
+    "order_category": "footwear",
+    "order_price": 4554.63,
+    "intent_category": "footwear",
+    "intent_max_price": 3913.38,
+    "payment_mode": "COD",
+    "pincode": 50006,
+    "timestamp": "2026-02-27T20:41:00",
+    "fraud_risk_score": 0.888,
+    "intent_match_confidence": 0.432,
+    "preference_fit_score": 0.38,
+    "decision": "HOLD_FRAUD_REVIEW",
+    "reason": "Fraud-risk score 0.89 exceeds threshold 0.5 \u2014 held for manual fraud review."
+  },
+  {
+    "order_id": "2463e20c",
+    "user_id": "user_465",
+    "agent_id": "agent_15",
+    "order_category": "electronics",
+    "order_price": 5664.67,
+    "intent_category": "electronics",
+    "intent_max_price": 4311.26,
+    "payment_mode": "prepaid",
+    "pincode": 50003,
+    "timestamp": "2026-02-15T22:27:00",
+    "fraud_risk_score": 0.772,
+    "intent_match_confidence": 0.28,
+    "preference_fit_score": 0.26,
+    "decision": "HOLD_FRAUD_REVIEW",
+    "reason": "Fraud-risk score 0.77 exceeds threshold 0.5 \u2014 held for manual fraud review."
+  },
+  {
+    "order_id": "ac810ddb",
+    "user_id": "user_58",
+    "agent_id": "agent_53",
+    "order_category": "flights",
+    "order_price": 3711.31,
+    "intent_category": "flights",
+    "intent_max_price": 2878.54,
+    "payment_mode": "prepaid",
+    "pincode": 500011,
+    "timestamp": "2026-05-05T02:09:00",
+    "fraud_risk_score": 0.199,
+    "intent_match_confidence": 0.287,
+    "preference_fit_score": 0.94,
+    "decision": "HOLD_CONFIRM_WITH_HUMAN",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.29), but this customer's history (preference-fit 0.94) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
+  },
+  {
+    "order_id": "1537f388",
+    "user_id": "user_298",
+    "agent_id": "agent_10",
+    "order_category": "footwear",
+    "order_price": 3856.35,
+    "intent_category": "footwear",
+    "intent_max_price": 2757.12,
+    "payment_mode": "prepaid",
+    "pincode": 50009,
+    "timestamp": "2026-05-15T04:46:00",
+    "fraud_risk_score": 0.186,
+    "intent_match_confidence": 0.357,
+    "preference_fit_score": 0.92,
+    "decision": "HOLD_CONFIRM_WITH_HUMAN",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.36), but this customer's history (preference-fit 0.92) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
+  },
+  {
+    "order_id": "026c5240",
+    "user_id": "user_164",
+    "agent_id": "agent_44",
+    "order_category": "flights",
+    "order_price": 1981.25,
+    "intent_category": "flights",
+    "intent_max_price": 1509.14,
+    "payment_mode": "prepaid",
+    "pincode": 500016,
+    "timestamp": "2026-02-20T21:18:00",
+    "fraud_risk_score": 0.181,
+    "intent_match_confidence": 0.384,
+    "preference_fit_score": 0.64,
+    "decision": "HOLD_CONFIRM_WITH_HUMAN",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.38), but this customer's history (preference-fit 0.64) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
+  },
+  {
+    "order_id": "4470727d",
+    "user_id": "user_71",
+    "agent_id": "agent_39",
+    "order_category": "footwear",
+    "order_price": 8542.63,
+    "intent_category": "footwear",
+    "intent_max_price": 5657.49,
+    "payment_mode": "prepaid",
+    "pincode": 500020,
+    "timestamp": "2026-05-18T13:04:00",
+    "fraud_risk_score": 0.395,
+    "intent_match_confidence": 0.23,
+    "preference_fit_score": 0.5,
+    "decision": "HOLD_CONFIRM_WITH_HUMAN",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.23), but this customer's history (preference-fit 0.50) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
+  },
+  {
+    "order_id": "047f8af2",
+    "user_id": "user_267",
+    "agent_id": "agent_35",
+    "order_category": "groceries",
+    "order_price": 1926.25,
+    "intent_category": "groceries",
+    "intent_max_price": 1628.41,
+    "payment_mode": "COD",
+    "pincode": 50001,
+    "timestamp": "2026-04-29T12:33:00",
+    "fraud_risk_score": 0.458,
+    "intent_match_confidence": 0.317,
+    "preference_fit_score": 0.5,
+    "decision": "HOLD_CONFIRM_WITH_HUMAN",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.32), but this customer's history (preference-fit 0.50) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
+  },
+  {
+    "order_id": "9d2f8b4d",
+    "user_id": "user_321",
+    "agent_id": "agent_24",
+    "order_category": "flights",
+    "order_price": 2107.01,
+    "intent_category": "flights",
+    "intent_max_price": 1856.63,
+    "payment_mode": "prepaid",
+    "pincode": 500010,
+    "timestamp": "2026-02-15T07:27:00",
+    "fraud_risk_score": 0.211,
+    "intent_match_confidence": 0.331,
+    "preference_fit_score": 0.73,
+    "decision": "HOLD_CONFIRM_WITH_HUMAN",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.33), but this customer's history (preference-fit 0.73) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
+  },
+  {
+    "order_id": "f29b0cfa",
+    "user_id": "user_16",
+    "agent_id": "agent_26",
+    "order_category": "home",
+    "order_price": 1542.97,
+    "intent_category": "home",
+    "intent_max_price": 1369.24,
+    "payment_mode": "prepaid",
+    "pincode": 50001,
+    "timestamp": "2026-02-08T20:07:00",
+    "fraud_risk_score": 0.259,
+    "intent_match_confidence": 0.444,
+    "preference_fit_score": 0.69,
+    "decision": "HOLD_CONFIRM_WITH_HUMAN",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.44), but this customer's history (preference-fit 0.69) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
+  },
+  {
+    "order_id": "732c5747",
+    "user_id": "user_221",
+    "agent_id": "agent_29",
+    "order_category": "footwear",
+    "order_price": 1451.67,
+    "intent_category": "home",
+    "intent_max_price": 941.36,
+    "payment_mode": "prepaid",
+    "pincode": 500019,
+    "timestamp": "2026-04-10T17:32:00",
+    "fraud_risk_score": 0.248,
+    "intent_match_confidence": 0.184,
+    "preference_fit_score": 0.66,
+    "decision": "HOLD_CONFIRM_WITH_HUMAN",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.18), but this customer's history (preference-fit 0.66) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
+  },
+  {
+    "order_id": "9ce8a32a",
+    "user_id": "user_277",
+    "agent_id": "agent_5",
+    "order_category": "groceries",
+    "order_price": 4411.57,
+    "intent_category": "groceries",
+    "intent_max_price": 2868.23,
+    "payment_mode": "prepaid",
+    "pincode": 500014,
+    "timestamp": "2026-04-01T01:59:00",
+    "fraud_risk_score": 0.22,
+    "intent_match_confidence": 0.315,
+    "preference_fit_score": 0.99,
+    "decision": "HOLD_CONFIRM_WITH_HUMAN",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.32), but this customer's history (preference-fit 0.99) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
+  },
+  {
+    "order_id": "d78f26d1",
+    "user_id": "user_30",
+    "agent_id": "agent_36",
+    "order_category": "home",
+    "order_price": 7199.15,
+    "intent_category": "home",
+    "intent_max_price": 4500.41,
+    "payment_mode": "prepaid",
+    "pincode": 50008,
+    "timestamp": "2026-04-04T15:08:00",
+    "fraud_risk_score": 0.427,
+    "intent_match_confidence": 0.297,
+    "preference_fit_score": 0.85,
+    "decision": "HOLD_CONFIRM_WITH_HUMAN",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.30), but this customer's history (preference-fit 0.85) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
+  },
+  {
+    "order_id": "3063adcc",
+    "user_id": "user_291",
+    "agent_id": "agent_17",
+    "order_category": "flights",
+    "order_price": 8950.82,
+    "intent_category": "footwear",
+    "intent_max_price": 6092.56,
+    "payment_mode": "prepaid",
+    "pincode": 500013,
+    "timestamp": "2026-01-13T17:11:00",
+    "fraud_risk_score": 0.373,
+    "intent_match_confidence": 0.135,
+    "preference_fit_score": 0.75,
+    "decision": "HOLD_CONFIRM_WITH_HUMAN",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.13), but this customer's history (preference-fit 0.75) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
+  },
+  {
+    "order_id": "69bf0c55",
+    "user_id": "user_137",
+    "agent_id": "agent_20",
+    "order_category": "fashion",
+    "order_price": 2693.25,
+    "intent_category": "fashion",
+    "intent_max_price": 1716.35,
+    "payment_mode": "COD",
+    "pincode": 500014,
+    "timestamp": "2026-01-06T23:11:00",
+    "fraud_risk_score": 0.42,
+    "intent_match_confidence": 0.306,
+    "preference_fit_score": 0.54,
+    "decision": "HOLD_CONFIRM_WITH_HUMAN",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.31), but this customer's history (preference-fit 0.54) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
+  },
+  {
+    "order_id": "cd078a95",
+    "user_id": "user_149",
+    "agent_id": "agent_58",
+    "order_category": "electronics",
+    "order_price": 5503.99,
+    "intent_category": "electronics",
+    "intent_max_price": 4044.3,
+    "payment_mode": "prepaid",
+    "pincode": 50007,
+    "timestamp": "2026-04-07T16:23:00",
+    "fraud_risk_score": 0.323,
+    "intent_match_confidence": 0.369,
+    "preference_fit_score": 0.8,
+    "decision": "HOLD_CONFIRM_WITH_HUMAN",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.37), but this customer's history (preference-fit 0.80) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
+  },
+  {
+    "order_id": "795d79e5",
+    "user_id": "user_72",
+    "agent_id": "agent_5",
+    "order_category": "fashion",
+    "order_price": 8359.76,
+    "intent_category": "fashion",
+    "intent_max_price": 7601.87,
+    "payment_mode": "prepaid",
+    "pincode": 50003,
+    "timestamp": "2026-03-02T00:18:00",
+    "fraud_risk_score": 0.42,
+    "intent_match_confidence": 0.453,
+    "preference_fit_score": 0.69,
+    "decision": "HOLD_CONFIRM_WITH_HUMAN",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.45), but this customer's history (preference-fit 0.69) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
+  },
+  {
+    "order_id": "3ea5dffd",
+    "user_id": "user_447",
+    "agent_id": "agent_9",
+    "order_category": "groceries",
+    "order_price": 5696.42,
+    "intent_category": "groceries",
+    "intent_max_price": 4214.75,
+    "payment_mode": "COD",
+    "pincode": 50005,
+    "timestamp": "2026-04-11T04:14:00",
+    "fraud_risk_score": 0.454,
+    "intent_match_confidence": 0.371,
+    "preference_fit_score": 0.93,
+    "decision": "HOLD_CONFIRM_WITH_HUMAN",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.37), but this customer's history (preference-fit 0.93) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
+  },
+  {
+    "order_id": "fbb34990",
+    "user_id": "user_396",
+    "agent_id": "agent_26",
+    "order_category": "flights",
+    "order_price": 7260.44,
+    "intent_category": "flights",
+    "intent_max_price": 5895.97,
+    "payment_mode": "prepaid",
+    "pincode": 50004,
+    "timestamp": "2026-03-23T14:48:00",
+    "fraud_risk_score": 0.357,
+    "intent_match_confidence": 0.41,
+    "preference_fit_score": 0.42,
+    "decision": "HOLD_LIKELY_MISMATCH",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.41) and doesn't align with this customer's history (preference-fit 0.42) \u2014 likely a mistaken purchase, held to prevent a probable return."
+  },
+  {
+    "order_id": "687acf08",
+    "user_id": "user_77",
+    "agent_id": "agent_35",
+    "order_category": "footwear",
+    "order_price": 2879.35,
+    "intent_category": "footwear",
+    "intent_max_price": 2358.8,
+    "payment_mode": "prepaid",
+    "pincode": 500014,
+    "timestamp": "2026-02-09T13:04:00",
+    "fraud_risk_score": 0.236,
+    "intent_match_confidence": 0.413,
+    "preference_fit_score": 0.118,
+    "decision": "HOLD_LIKELY_MISMATCH",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.41) and doesn't align with this customer's history (preference-fit 0.12) \u2014 likely a mistaken purchase, held to prevent a probable return."
+  },
+  {
+    "order_id": "1bb3c954",
+    "user_id": "user_474",
+    "agent_id": "agent_26",
+    "order_category": "fashion",
+    "order_price": 7135.45,
+    "intent_category": "fashion",
+    "intent_max_price": 6307.41,
+    "payment_mode": "prepaid",
+    "pincode": 50002,
+    "timestamp": "2026-03-18T19:18:00",
+    "fraud_risk_score": 0.293,
+    "intent_match_confidence": 0.332,
+    "preference_fit_score": 0.36,
+    "decision": "HOLD_LIKELY_MISMATCH",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.33) and doesn't align with this customer's history (preference-fit 0.36) \u2014 likely a mistaken purchase, held to prevent a probable return."
+  },
+  {
+    "order_id": "cce47ea5",
+    "user_id": "user_484",
+    "agent_id": "agent_15",
+    "order_category": "footwear",
+    "order_price": 2175.4,
+    "intent_category": "footwear",
+    "intent_max_price": 1572.66,
+    "payment_mode": "COD",
+    "pincode": 500014,
+    "timestamp": "2026-04-22T05:52:00",
+    "fraud_risk_score": 0.399,
+    "intent_match_confidence": 0.362,
+    "preference_fit_score": 0.04,
+    "decision": "HOLD_LIKELY_MISMATCH",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.36) and doesn't align with this customer's history (preference-fit 0.04) \u2014 likely a mistaken purchase, held to prevent a probable return."
+  },
+  {
+    "order_id": "934fa538",
+    "user_id": "user_410",
+    "agent_id": "agent_39",
+    "order_category": "flights",
+    "order_price": 5273.23,
+    "intent_category": "flights",
+    "intent_max_price": 4081.29,
+    "payment_mode": "prepaid",
+    "pincode": 500013,
+    "timestamp": "2026-02-10T00:45:00",
+    "fraud_risk_score": 0.347,
+    "intent_match_confidence": 0.39,
+    "preference_fit_score": 0.174,
+    "decision": "HOLD_LIKELY_MISMATCH",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.39) and doesn't align with this customer's history (preference-fit 0.17) \u2014 likely a mistaken purchase, held to prevent a probable return."
+  },
+  {
+    "order_id": "cec10fd1",
+    "user_id": "user_172",
+    "agent_id": "agent_36",
+    "order_category": "footwear",
+    "order_price": 1816.23,
+    "intent_category": "footwear",
+    "intent_max_price": 1136.09,
+    "payment_mode": "prepaid",
+    "pincode": 50006,
+    "timestamp": "2026-03-11T00:23:00",
+    "fraud_risk_score": 0.365,
+    "intent_match_confidence": 0.298,
+    "preference_fit_score": 0.082,
+    "decision": "HOLD_LIKELY_MISMATCH",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.30) and doesn't align with this customer's history (preference-fit 0.08) \u2014 likely a mistaken purchase, held to prevent a probable return."
+  },
+  {
+    "order_id": "2d0575d4",
+    "user_id": "user_350",
+    "agent_id": "agent_33",
+    "order_category": "flights",
+    "order_price": 2818.86,
+    "intent_category": "flights",
+    "intent_max_price": 1983.57,
+    "payment_mode": "COD",
+    "pincode": 500015,
+    "timestamp": "2026-03-17T06:55:00",
+    "fraud_risk_score": 0.38,
+    "intent_match_confidence": 0.252,
+    "preference_fit_score": 0.056,
+    "decision": "HOLD_LIKELY_MISMATCH",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.25) and doesn't align with this customer's history (preference-fit 0.06) \u2014 likely a mistaken purchase, held to prevent a probable return."
+  },
+  {
+    "order_id": "736639a2",
+    "user_id": "user_204",
+    "agent_id": "agent_55",
+    "order_category": "footwear",
+    "order_price": 3207.52,
+    "intent_category": "groceries",
+    "intent_max_price": 2902.98,
+    "payment_mode": "COD",
+    "pincode": 500011,
+    "timestamp": "2026-03-28T01:13:00",
+    "fraud_risk_score": 0.384,
+    "intent_match_confidence": 0.289,
+    "preference_fit_score": 0.122,
+    "decision": "HOLD_LIKELY_MISMATCH",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.29) and doesn't align with this customer's history (preference-fit 0.12) \u2014 likely a mistaken purchase, held to prevent a probable return."
+  },
+  {
+    "order_id": "31b7d4d0",
+    "user_id": "user_118",
+    "agent_id": "agent_53",
+    "order_category": "footwear",
+    "order_price": 3958.55,
+    "intent_category": "footwear",
+    "intent_max_price": 3140.38,
+    "payment_mode": "prepaid",
+    "pincode": 500015,
+    "timestamp": "2026-02-16T18:51:00",
+    "fraud_risk_score": 0.216,
+    "intent_match_confidence": 0.295,
+    "preference_fit_score": 0.176,
+    "decision": "HOLD_LIKELY_MISMATCH",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.29) and doesn't align with this customer's history (preference-fit 0.18) \u2014 likely a mistaken purchase, held to prevent a probable return."
+  },
+  {
+    "order_id": "35ad74cc",
+    "user_id": "user_31",
+    "agent_id": "agent_44",
+    "order_category": "home",
+    "order_price": 8780.64,
+    "intent_category": "groceries",
+    "intent_max_price": 6095.51,
+    "payment_mode": "COD",
+    "pincode": 500015,
+    "timestamp": "2026-03-04T10:26:00",
+    "fraud_risk_score": 0.497,
+    "intent_match_confidence": 0.139,
+    "preference_fit_score": 0.046,
+    "decision": "HOLD_LIKELY_MISMATCH",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.14) and doesn't align with this customer's history (preference-fit 0.05) \u2014 likely a mistaken purchase, held to prevent a probable return."
+  },
+  {
+    "order_id": "67882cfa",
+    "user_id": "user_201",
+    "agent_id": "agent_59",
+    "order_category": "electronics",
+    "order_price": 9994.53,
+    "intent_category": "electronics",
+    "intent_max_price": 7293.44,
+    "payment_mode": "prepaid",
+    "pincode": 50009,
+    "timestamp": "2026-04-30T10:34:00",
+    "fraud_risk_score": 0.269,
+    "intent_match_confidence": 0.265,
+    "preference_fit_score": 0.058,
+    "decision": "HOLD_LIKELY_MISMATCH",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.27) and doesn't align with this customer's history (preference-fit 0.06) \u2014 likely a mistaken purchase, held to prevent a probable return."
+  },
+  {
+    "order_id": "a05722c7",
+    "user_id": "user_167",
+    "agent_id": "agent_48",
+    "order_category": "home",
+    "order_price": 3768.31,
+    "intent_category": "home",
+    "intent_max_price": 2774.02,
+    "payment_mode": "COD",
+    "pincode": 50007,
+    "timestamp": "2026-04-15T01:14:00",
+    "fraud_risk_score": 0.416,
+    "intent_match_confidence": 0.268,
+    "preference_fit_score": 0.054,
+    "decision": "HOLD_LIKELY_MISMATCH",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.27) and doesn't align with this customer's history (preference-fit 0.05) \u2014 likely a mistaken purchase, held to prevent a probable return."
+  },
+  {
+    "order_id": "8356abf2",
+    "user_id": "user_189",
+    "agent_id": "agent_39",
+    "order_category": "flights",
+    "order_price": 8962.96,
+    "intent_category": "flights",
+    "intent_max_price": 6867.34,
+    "payment_mode": "COD",
+    "pincode": 500015,
+    "timestamp": "2026-04-30T09:12:00",
+    "fraud_risk_score": 0.495,
+    "intent_match_confidence": 0.386,
+    "preference_fit_score": 0.37,
+    "decision": "HOLD_LIKELY_MISMATCH",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.39) and doesn't align with this customer's history (preference-fit 0.37) \u2014 likely a mistaken purchase, held to prevent a probable return."
+  },
+  {
+    "order_id": "b7e9ffa7",
+    "user_id": "user_164",
+    "agent_id": "agent_21",
+    "order_category": "flights",
+    "order_price": 729.34,
+    "intent_category": "flights",
+    "intent_max_price": 605.94,
+    "payment_mode": "COD",
+    "pincode": 500017,
+    "timestamp": "2026-02-17T02:01:00",
+    "fraud_risk_score": 0.47,
+    "intent_match_confidence": 0.419,
+    "preference_fit_score": 0.24,
+    "decision": "HOLD_LIKELY_MISMATCH",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.42) and doesn't align with this customer's history (preference-fit 0.24) \u2014 likely a mistaken purchase, held to prevent a probable return."
+  },
+  {
+    "order_id": "75f49e57",
+    "user_id": "user_62",
+    "agent_id": "agent_16",
+    "order_category": "home",
+    "order_price": 4816.66,
+    "intent_category": "home",
+    "intent_max_price": 3266.59,
+    "payment_mode": "COD",
+    "pincode": 500011,
+    "timestamp": "2026-03-14T11:56:00",
+    "fraud_risk_score": 0.386,
+    "intent_match_confidence": 0.334,
+    "preference_fit_score": 0.39,
+    "decision": "HOLD_LIKELY_MISMATCH",
+    "reason": "Order deviates from stated intent (intent-match confidence 0.33) and doesn't align with this customer's history (preference-fit 0.39) \u2014 likely a mistaken purchase, held to prevent a probable return."
+  }
+]</script>
+<script id="agg-stats" type="application/json">{
+  "total_transactions": 4000,
+  "decision_counts": {
+    "AUTO_APPROVE": 1682,
+    "HOLD_FRAUD_REVIEW": 1536,
+    "HOLD_LIKELY_MISMATCH": 520,
+    "HOLD_CONFIRM_WITH_HUMAN": 262
+  },
+  "avg_fraud_risk": 0.464,
+  "avg_intent_match": 0.581,
+  "intent_threshold": 0.55,
+  "fraud_threshold": 0.5
+}</script>
+
+<script>
+const demoData = JSON.parse(document.getElementById('demo-data').textContent);
+const aggStats = JSON.parse(document.getElementById('agg-stats').textContent);
+
+// tabs
+document.querySelectorAll('nav.tabs:not(#merchant-filters) button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav.tabs:not(#merchant-filters) button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.view).classList.add('active');
+  });
+});
+
+function badgeInfo(decision) {
+  switch(decision) {
+    case 'AUTO_APPROVE': return {cls:'approve', label:'Approved'};
+    case 'HOLD_FRAUD_REVIEW': return {cls:'fraud', label:'Fraud review'};
+    case 'HOLD_CONFIRM_WITH_HUMAN': return {cls:'confirm', label:'Confirm with you'};
+    case 'HOLD_LIKELY_MISMATCH': return {cls:'mismatch', label:'Likely mismatch'};
+  }
+}
+
+// CONSUMER VIEW
+const consumerList = document.getElementById('consumer-list');
+const consumerSample = demoData.filter((d,i) => i % 5 === 0).slice(0, 10);
+consumerSample.forEach((d, i) => {
+  const b = badgeInfo(d.decision);
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.style.animationDelay = `${i * 60}ms`;
+  div.innerHTML = `
+    <div class="card-row">
+      <div>
+        <div class="agent-line">${d.agent_id} · on your behalf</div>
+        <div class="item-line">${d.order_category[0].toUpperCase()+d.order_category.slice(1)} order</div>
+        <div class="price">₹${d.order_price.toLocaleString('en-IN')} · intent budget ₹${d.intent_max_price.toLocaleString('en-IN')}</div>
+      </div>
+      <span class="badge ${b.cls}">${b.label}</span>
+    </div>
+    <div class="reason">${d.reason}</div>
+  `;
+  consumerList.appendChild(div);
+});
+
+// MERCHANT VIEW — filterable table
+const merchantRows = document.getElementById('merchant-rows');
+function renderMerchantRows(filter) {
+  merchantRows.innerHTML = '';
+  const rows = filter === 'ALL' ? demoData : demoData.filter(d => d.decision === filter);
+  rows.forEach((d, i) => {
+    const b = badgeInfo(d.decision);
+    const tr = document.createElement('tr');
+    tr.style.animationDelay = `${Math.min(i * 18, 400)}ms`;
+    tr.innerHTML = `
+      <td class="mono">${d.order_id}</td>
+      <td>${d.order_category}</td>
+      <td class="mono">₹${d.order_price.toLocaleString('en-IN')}</td>
+      <td><div class="score-bar" data-tip="${d.fraud_risk_score>=aggStats.fraud_threshold?'above demo threshold ('+aggStats.fraud_threshold+')':'below threshold'}"><div class="track"><div class="fill ${d.fraud_risk_score>=aggStats.fraud_threshold?'high-risk':''}" style="width:${d.fraud_risk_score*100}%"></div></div><span class="mono">${d.fraud_risk_score}</span></div></td>
+      <td><div class="score-bar" data-tip="${d.intent_match_confidence>=aggStats.intent_threshold?'stayed within intent':'deviated from intent'}"><div class="track"><div class="fill" style="width:${d.intent_match_confidence*100}%"></div></div><span class="mono">${d.intent_match_confidence}</span></div></td>
+      <td><span class="badge ${b.cls}">${b.label}</span></td>
+    `;
+    merchantRows.appendChild(tr);
+  });
+}
+renderMerchantRows('ALL');
+document.querySelectorAll('#merchant-filters button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#merchant-filters button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderMerchantRows(btn.dataset.filter);
+  });
+});
+
+// RAZORPAY VIEW — animated counters
+const statGrid = document.getElementById('stat-grid');
+const dc = aggStats.decision_counts;
+const statDefs = [
+  {key:'AUTO_APPROVE', label:'auto-approved', cls:'approve'},
+  {key:'HOLD_FRAUD_REVIEW', label:'fraud review', cls:'fraud'},
+  {key:'HOLD_CONFIRM_WITH_HUMAN', label:'confirm w/ human', cls:'confirm'},
+  {key:'HOLD_LIKELY_MISMATCH', label:'likely mismatch', cls:'mismatch'},
+];
+function animateCount(el, target, duration=800) {
+  const start = performance.now();
+  function tick(now) {
+    const p = Math.min((now - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(eased * target).toLocaleString();
+    if (p < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+statDefs.forEach(s => {
+  const div = document.createElement('div');
+  div.className = `stat ${s.cls}`;
+  div.innerHTML = `<div class="num" data-target="${dc[s.key]}">0</div><div class="label">${s.label}</div>`;
+  statGrid.appendChild(div);
+});
+let statsAnimated = false;
+function animateStatsIfNeeded() {
+  if (statsAnimated) return;
+  statsAnimated = true;
+  document.querySelectorAll('#stat-grid .num').forEach(el => animateCount(el, parseInt(el.dataset.target)));
+}
+
+const barChart = document.getElementById('bar-chart');
+const maxCount = Math.max(...Object.values(dc));
+statDefs.forEach(s => {
+  const count = dc[s.key];
+  const pct = (count / maxCount) * 100;
+  const row = document.createElement('div');
+  row.className = 'bar-row';
+  row.innerHTML = `
+    <div>${s.label}</div>
+    <div class="bar-track"><div class="bar-fill ${s.cls}" style="width:0%" data-target="${pct}"></div></div>
+    <div class="bar-count">${count}</div>
+  `;
+  barChart.appendChild(row);
+});
+function animateBarsIfNeeded() {
+  document.querySelectorAll('.bar-fill').forEach((el, i) => {
+    setTimeout(() => { el.style.width = el.dataset.target + '%'; }, i * 90);
+  });
+}
+document.querySelector('[data-view="razorpay"]').addEventListener('click', () => {
+  animateStatsIfNeeded();
+  animateBarsIfNeeded();
+});
+
+// FRAUD REVIEW VIEW — a static mockup of what a human analyst sees for
+// one held transaction, showing the exact signals behind the flag
+const reviewCard = document.getElementById('review-card');
+const flaggedExample = demoData.find(d => d.decision === 'HOLD_FRAUD_REVIEW') || demoData[0];
+reviewCard.innerHTML = `
+  <div class="review-header">
+    <div>
+      <div class="oid">${flaggedExample.order_id} · ${flaggedExample.agent_id}</div>
+      <div class="amount">₹${flaggedExample.order_price.toLocaleString('en-IN')}</div>
+    </div>
+    <span class="badge fraud">Fraud review</span>
+  </div>
+  <div class="review-signals">
+    <div class="review-signal"><span class="label">fraud_risk_score</span><span class="value flag">${flaggedExample.fraud_risk_score}</span></div>
+    <div class="review-signal"><span class="label">intent_match_confidence</span><span class="value">${flaggedExample.intent_match_confidence}</span></div>
+    <div class="review-signal"><span class="label">preference_fit_score</span><span class="value">${flaggedExample.preference_fit_score}</span></div>
+    <div class="review-signal"><span class="label">category</span><span class="value">${flaggedExample.order_category}</span></div>
+    <div class="review-signal"><span class="label">system reasoning</span><span class="value" style="text-align:right; max-width:280px; color:var(--muted);">${flaggedExample.reason}</span></div>
+  </div>
+  <div class="review-actions">
+    <button class="review-btn approve" onclick="this.parentElement.parentElement.style.opacity='0.4'; this.parentElement.innerHTML='<span style=\\'color:var(--go);font-family:var(--mono);font-size:12px\\'>✓ Approved by analyst</span>'">Approve anyway</button>
+    <button class="review-btn reject" onclick="this.parentElement.parentElement.style.opacity='0.4'; this.parentElement.innerHTML='<span style=\\'color:var(--stop);font-family:var(--mono);font-size:12px\\'>✕ Rejected by analyst</span>'">Reject</button>
+  </div>
+`;
+// LIVE SIMULATION — now runs the FULL loop: shopping agent proposes,
+// RiskGate scores. Calls /full_loop (generates a fresh human intent,
+// proposes a real catalog match, scores it) instead of /simulate
+// (which only re-scores an existing transaction). Falls back to
+// pre-computed replay data if the API isn't running.
+const simPanel = document.getElementById('sim-panel');
+const simBtn = document.getElementById('sim-run');
+const simOrderLine = document.getElementById('sim-order-line');
+const simProposalLine = document.getElementById('sim-proposal-line');
+const simResult = document.getElementById('sim-result');
+let simRunning = false;
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function runSimulation() {
+  if (simRunning) return;
+  simRunning = true;
+  simBtn.disabled = true;
+
+  ['fraud','intent','pref'].forEach(k => {
+    document.getElementById(`step-${k}`).classList.remove('active');
+    document.getElementById(`fill-${k}`).style.width = '0%';
+    document.getElementById(`val-${k}`).textContent = '—';
+  });
+  simResult.classList.remove('show');
+  simResult.innerHTML = '';
+  simProposalLine.textContent = '';
+  simPanel.classList.remove('scanning');
+  void simPanel.offsetWidth; // restart animation
+  simPanel.classList.add('scanning');
+
+  let d;
+  let isLive = false;
+  try {
+    const res = await fetch('http://localhost:5050/full_loop', { signal: AbortSignal.timeout(1500) });
+    if (res.ok) {
+      const json = await res.json();
+      if (json.status === 'SCORED') { d = json; isLive = true; }
+    }
+  } catch (e) { /* API not running — fall back below */ }
+  if (!d) d = demoData[Math.floor(Math.random() * demoData.length)];
+
+  await displayResult(d, isLive);
+
+  simBtn.disabled = false;
+  simRunning = false;
+}
+
+async function displayResult(d, isLive) {
+  const intentLine = d.intent
+    ? `intent: ${d.intent.category}, budget ₹${d.intent.max_price.toLocaleString('en-IN')}, wants ${d.intent.key_attribute}`
+    : `intent budget ₹${d.intent_max_price.toLocaleString('en-IN')}`;
+  simOrderLine.textContent = `${isLive ? '● LIVE  ' : '○ replay  '}${d.agent_id} — ${intentLine}`;
+
+  if (d.proposed_product) {
+    simProposalLine.textContent = `agent proposes: ${d.proposed_product} · ₹${d.order_price.toLocaleString('en-IN')} (${d.matched_rule.replace(/_/g,' ')})`;
+  }
+
+  await sleep(400);
+
+  const stepFraud = document.getElementById('step-fraud');
+  stepFraud.classList.add('active');
+  await sleep(450);
+  document.getElementById('fill-fraud').style.width = (d.fraud_risk_score*100) + '%';
+  document.getElementById('val-fraud').textContent = d.fraud_risk_score;
+  await sleep(450);
+
+  const stepIntent = document.getElementById('step-intent');
+  stepIntent.classList.add('active');
+
+  await sleep(450);
+  document.getElementById('fill-intent').style.width = (d.intent_match_confidence*100) + '%';
+  document.getElementById('val-intent').textContent = d.intent_match_confidence;
+  await sleep(450);
+
+  const stepPref = document.getElementById('step-pref');
+  stepPref.classList.add('active');
+  await sleep(450);
+  document.getElementById('fill-pref').style.width = (d.preference_fit_score*100) + '%';
+  document.getElementById('val-pref').textContent = d.preference_fit_score;
+  await sleep(450);
+
+  const b = badgeInfo(d.decision);
+  simResult.innerHTML = `<span class="badge ${b.cls}">${b.label}</span>${d.reason}`;
+  simResult.classList.add('show');
+}
+simBtn.addEventListener('click', runSimulation);
+
+// If a specific result was carried over from the checkout demo (via URL),
+// show THAT exact transaction instead of a fresh random one — this is
+// what makes "See what RiskGate did" actually show what just happened,
+// not a disconnected new example.
+const urlParams = new URLSearchParams(window.location.search);
+const carriedResult = urlParams.get('result');
+if (carriedResult) {
+  try {
+    const d = JSON.parse(decodeURIComponent(carriedResult));
+    document.querySelector('[data-view="razorpay"]').click();
+    simPanel.classList.add('scanning');
+    displayResult(d, true).then(() => { simPanel.classList.remove('scanning'); });
+  } catch (e) { /* malformed/missing param — just show the default view */ }
+}
+</script>
+</body>
+</html>

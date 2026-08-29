@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RiskGate</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+  :root {
+    --bg: #08090b; --panel: #0e1013; --line: #22262b; --ink: #eef0f2;
+    --muted: #7a8189; --dim: #4a5058; --go: #5eff9d; --go-glow: rgba(94,255,157,0.18);
+    --stop: #ff5c5c; --mono: 'JetBrains Mono', monospace; --display: 'Space Grotesk', sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink);
+    font-family: var(--display); display: flex; align-items: center; justify-content: center;
+    background-image: radial-gradient(ellipse 900px 600px at 50% -10%, rgba(94,255,157,0.06), transparent);
+  }
+  .wrap { max-width: 680px; padding: 40px 24px; text-align: center; }
+  .brand { display: flex; align-items: center; justify-content: center; gap: 11px; margin-bottom: 40px; }
+  .brand .mark {
+    width: 22px; height: 22px; border-radius: 5px;
+    background: linear-gradient(135deg, var(--go), #2fd97a); box-shadow: 0 0 16px var(--go-glow);
+    position: relative;
+  }
+  .brand .mark::after { content: ''; position: absolute; inset: 5px; border-radius: 2px; background: var(--bg); }
+  .brand h1 { font-size: 18px; font-weight: 700; margin: 0; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; color: var(--go); letter-spacing: 0.08em;
+    text-transform: uppercase; margin-bottom: 20px;
+  }
+  h2 { font-size: 32px; line-height: 1.4; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 20px; }
+  h2 .strike { color: var(--dim); text-decoration: line-through; text-decoration-color: var(--stop); }
+  h2 .go { color: var(--go); }
+  p.sub { font-size: 15px; color: var(--muted); line-height: 1.65; max-width: 540px; margin: 0 auto 40px; }
+
+  .cta {
+    font-family: var(--mono); font-size: 13.5px; font-weight: 600; letter-spacing: 0.02em;
+    color: var(--bg); background: var(--go); border: none; padding: 14px 28px; border-radius: 9px;
+    cursor: pointer; box-shadow: 0 0 24px var(--go-glow); transition: all 0.15s ease;
+    text-decoration: none; display: inline-block;
+  }
+  .cta:hover { transform: translateY(-2px); box-shadow: 0 0 32px var(--go-glow); }
+
+  .steps { display: flex; justify-content: center; gap: 28px; margin-top: 56px; }
+  .step { font-family: var(--mono); font-size: 11px; color: var(--dim); max-width: 140px; }
+  .step .n {
+    width: 22px; height: 22px; border: 1px solid var(--line); border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; margin: 0 auto 10px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><span class="mark"></span><h1>RiskGate</h1></div>
+  <div class="eyebrow">watch it work</div>
+  <h2>Every payment used to have a human tap a PIN to confirm it.<br><span class="strike">That moment is gone.</span> <span class="go">Here's what replaces it.</span></h2>
+  <p class="sub">An AI agent is about to buy something on a customer's behalf. Watch it happen — then watch RiskGate score and gate the transaction, live, in real time.</p>
+  <a class="cta" href="checkout.html">Start the demo ▸</a>
+
+  <div class="steps">
+    <div class="step"><div class="n">1</div>An agent shops for a customer</div>
+    <div class="step"><div class="n">2</div>RiskGate scores the transaction, live</div>
+    <div class="step"><div class="n">3</div>See the full decision trail</div>
+  </div>
+</div>
+</body>
+</html>
