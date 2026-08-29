@@ -18,7 +18,6 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 import numpy as np
 import pandas as pd
-import uuid
 from datetime import datetime, timedelta
 
 rng = np.random.default_rng(42)
@@ -122,7 +121,7 @@ def gen_transaction(i):
     ) if not is_fraud else 0  # keep labels distinct — fraud isn't double-counted as mismatch
 
     return {
-        "order_id": str(uuid.uuid4())[:8],
+        "order_id": f"txn_{i:06d}",
         "order_value": order_price,
         "category": order_category,
         "payment_mode": payment_mode,

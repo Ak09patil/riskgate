@@ -228,6 +228,23 @@
   #merchant-filters button.active { background: var(--go-dim); color: var(--go); border-color: rgba(94,255,157,0.3); }
 
   /* fraud review mockup */
+  /* pattern narrative panel — LLM-phrased (or template-fallback)
+     summary of deterministically-detected clusters in a fraud batch */
+  .narrative-panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 22px; max-width: 640px; margin-bottom: 20px;
+  }
+  .narrative-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .narrative-title { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+  .narrative-source { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+  .narrative-text { font-size: 12.5px; color: var(--ink); line-height: 1.65; white-space: pre-line; }
+  .feedback-status-panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 22px; max-width: 640px; margin-bottom: 20px;
+  }
+  .feedback-status-panel .narrative-title { display: block; margin-bottom: 4px; }
+  .feedback-status-panel.has-data { border-color: rgba(94,255,157,0.25); }
+
   .review-card {
     background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
     padding: 24px 26px; max-width: 560px;
@@ -381,6 +398,20 @@
   <!-- FRAUD REVIEW VIEW -->
   <section class="view" id="review">
     <p class="lede">What a fraud analyst sees for a held transaction — the full signal breakdown behind the score, not just a number.</p>
+
+    <div class="narrative-panel" id="narrative-panel">
+      <div class="narrative-head">
+        <span class="narrative-title">Batch pattern summary</span>
+        <span class="narrative-source" id="narrative-source">loading…</span>
+      </div>
+      <div class="narrative-text" id="narrative-text">Loading pattern narrative…</div>
+    </div>
+
+    <div class="feedback-status-panel" id="feedback-status-panel">
+      <span class="narrative-title">Feedback loop</span>
+      <div class="narrative-text" id="feedback-status-text" style="margin-top:8px;">No outcomes recorded yet in this session — approve or reject a held transaction below to see the model's accuracy against real recorded outcomes.</div>
+    </div>
+
     <div class="review-card" id="review-card"></div>
   </section>
 
@@ -388,7 +419,7 @@
 
 <script id="demo-data" type="application/json">[
   {
-    "order_id": "e1c51962",
+    "order_id": "txn_000000",
     "user_id": "user_398",
     "agent_id": "agent_46",
     "order_category": "footwear",
@@ -405,7 +436,7 @@
     "reason": "Low fraud-risk (0.48) and high intent-match confidence (0.72) \u2014 auto-approved."
   },
   {
-    "order_id": "972bec47",
+    "order_id": "txn_000001",
     "user_id": "user_402",
     "agent_id": "agent_42",
     "order_category": "electronics",
@@ -422,7 +453,7 @@
     "reason": "Low fraud-risk (0.40) and high intent-match confidence (0.72) \u2014 auto-approved."
   },
   {
-    "order_id": "c5522132",
+    "order_id": "txn_000002",
     "user_id": "user_280",
     "agent_id": "agent_6",
     "order_category": "footwear",
@@ -439,7 +470,7 @@
     "reason": "Low fraud-risk (0.28) and high intent-match confidence (0.72) \u2014 auto-approved."
   },
   {
-    "order_id": "2d7263de",
+    "order_id": "txn_000003",
     "user_id": "user_209",
     "agent_id": "agent_25",
     "order_category": "fashion",
@@ -456,7 +487,7 @@
     "reason": "Low fraud-risk (0.43) and high intent-match confidence (0.72) \u2014 auto-approved."
   },
   {
-    "order_id": "bb041f48",
+    "order_id": "txn_000007",
     "user_id": "user_476",
     "agent_id": "agent_29",
     "order_category": "electronics",
@@ -473,7 +504,7 @@
     "reason": "Low fraud-risk (0.38) and high intent-match confidence (0.72) \u2014 auto-approved."
   },
   {
-    "order_id": "70c1e202",
+    "order_id": "txn_000010",
     "user_id": "user_23",
     "agent_id": "agent_16",
     "order_category": "flights",
@@ -490,7 +521,7 @@
     "reason": "Low fraud-risk (0.21) and high intent-match confidence (0.72) \u2014 auto-approved."
   },
   {
-    "order_id": "66d0ab05",
+    "order_id": "txn_000013",
     "user_id": "user_213",
     "agent_id": "agent_55",
     "order_category": "electronics",
@@ -507,7 +538,7 @@
     "reason": "Low fraud-risk (0.34) and high intent-match confidence (0.72) \u2014 auto-approved."
   },
   {
-    "order_id": "b74d4fcc",
+    "order_id": "txn_000016",
     "user_id": "user_401",
     "agent_id": "agent_19",
     "order_category": "electronics",
@@ -524,7 +555,7 @@
     "reason": "Low fraud-risk (0.18) and high intent-match confidence (0.72) \u2014 auto-approved."
   },
   {
-    "order_id": "ec133027",
+    "order_id": "txn_000018",
     "user_id": "user_18",
     "agent_id": "agent_55",
     "order_category": "groceries",
@@ -541,7 +572,7 @@
     "reason": "Low fraud-risk (0.42) and high intent-match confidence (0.72) \u2014 auto-approved."
   },
   {
-    "order_id": "87da2542",
+    "order_id": "txn_000020",
     "user_id": "user_59",
     "agent_id": "agent_47",
     "order_category": "electronics",
@@ -558,7 +589,7 @@
     "reason": "Low fraud-risk (0.40) and high intent-match confidence (0.72) \u2014 auto-approved."
   },
   {
-    "order_id": "c823dae3",
+    "order_id": "txn_000023",
     "user_id": "user_312",
     "agent_id": "agent_7",
     "order_category": "fashion",
@@ -575,7 +606,7 @@
     "reason": "Low fraud-risk (0.35) and high intent-match confidence (0.72) \u2014 auto-approved."
   },
   {
-    "order_id": "bd2c9115",
+    "order_id": "txn_000025",
     "user_id": "user_355",
     "agent_id": "agent_6",
     "order_category": "home",
@@ -592,7 +623,7 @@
     "reason": "Low fraud-risk (0.30) and high intent-match confidence (0.72) \u2014 auto-approved."
   },
   {
-    "order_id": "577c1544",
+    "order_id": "txn_000028",
     "user_id": "user_393",
     "agent_id": "agent_15",
     "order_category": "groceries",
@@ -609,7 +640,7 @@
     "reason": "Low fraud-risk (0.46) and high intent-match confidence (0.72) \u2014 auto-approved."
   },
   {
-    "order_id": "d033186f",
+    "order_id": "txn_000029",
     "user_id": "user_36",
     "agent_id": "agent_4",
     "order_category": "groceries",
@@ -626,7 +657,7 @@
     "reason": "Low fraud-risk (0.37) and high intent-match confidence (0.72) \u2014 auto-approved."
   },
   {
-    "order_id": "8ec4167b",
+    "order_id": "txn_000030",
     "user_id": "user_479",
     "agent_id": "agent_30",
     "order_category": "home",
@@ -643,7 +674,7 @@
     "reason": "Low fraud-risk (0.47) and high intent-match confidence (0.72) \u2014 auto-approved."
   },
   {
-    "order_id": "fcc20e8a",
+    "order_id": "txn_000004",
     "user_id": "user_181",
     "agent_id": "agent_36",
     "order_category": "fashion",
@@ -660,7 +691,7 @@
     "reason": "Fraud-risk score 0.79 exceeds threshold 0.5 \u2014 held for manual fraud review."
   },
   {
-    "order_id": "788fea1e",
+    "order_id": "txn_000005",
     "user_id": "user_290",
     "agent_id": "agent_48",
     "order_category": "home",
@@ -677,7 +708,7 @@
     "reason": "Fraud-risk score 0.51 exceeds threshold 0.5 \u2014 held for manual fraud review."
   },
   {
-    "order_id": "50d6ff6f",
+    "order_id": "txn_000008",
     "user_id": "user_71",
     "agent_id": "agent_7",
     "order_category": "electronics",
@@ -694,7 +725,7 @@
     "reason": "Fraud-risk score 0.83 exceeds threshold 0.5 \u2014 held for manual fraud review."
   },
   {
-    "order_id": "a21ceafb",
+    "order_id": "txn_000011",
     "user_id": "user_413",
     "agent_id": "agent_12",
     "order_category": "electronics",
@@ -711,7 +742,7 @@
     "reason": "Fraud-risk score 0.51 exceeds threshold 0.5 \u2014 held for manual fraud review."
   },
   {
-    "order_id": "4982ec59",
+    "order_id": "txn_000015",
     "user_id": "user_444",
     "agent_id": "agent_4",
     "order_category": "groceries",
@@ -728,7 +759,7 @@
     "reason": "Fraud-risk score 0.84 exceeds threshold 0.5 \u2014 held for manual fraud review."
   },
   {
-    "order_id": "3b3988c7",
+    "order_id": "txn_000019",
     "user_id": "user_45",
     "agent_id": "agent_5",
     "order_category": "electronics",
@@ -745,7 +776,7 @@
     "reason": "Fraud-risk score 0.67 exceeds threshold 0.5 \u2014 held for manual fraud review."
   },
   {
-    "order_id": "4cc86743",
+    "order_id": "txn_000022",
     "user_id": "user_361",
     "agent_id": "agent_7",
     "order_category": "home",
@@ -762,7 +793,7 @@
     "reason": "Fraud-risk score 0.63 exceeds threshold 0.5 \u2014 held for manual fraud review."
   },
   {
-    "order_id": "fdc760b7",
+    "order_id": "txn_000026",
     "user_id": "user_73",
     "agent_id": "agent_27",
     "order_category": "flights",
@@ -779,7 +810,7 @@
     "reason": "Fraud-risk score 0.67 exceeds threshold 0.5 \u2014 held for manual fraud review."
   },
   {
-    "order_id": "b3c88960",
+    "order_id": "txn_000027",
     "user_id": "user_485",
     "agent_id": "agent_39",
     "order_category": "electronics",
@@ -796,7 +827,7 @@
     "reason": "Fraud-risk score 0.58 exceeds threshold 0.5 \u2014 held for manual fraud review."
   },
   {
-    "order_id": "67085972",
+    "order_id": "txn_000032",
     "user_id": "user_122",
     "agent_id": "agent_16",
     "order_category": "flights",
@@ -813,7 +844,7 @@
     "reason": "Fraud-risk score 0.82 exceeds threshold 0.5 \u2014 held for manual fraud review."
   },
   {
-    "order_id": "0484ce96",
+    "order_id": "txn_000034",
     "user_id": "user_351",
     "agent_id": "agent_11",
     "order_category": "fashion",
@@ -830,7 +861,7 @@
     "reason": "Fraud-risk score 0.52 exceeds threshold 0.5 \u2014 held for manual fraud review."
   },
   {
-    "order_id": "1ed5f55c",
+    "order_id": "txn_000037",
     "user_id": "user_51",
     "agent_id": "agent_3",
     "order_category": "electronics",
@@ -847,7 +878,7 @@
     "reason": "Fraud-risk score 0.62 exceeds threshold 0.5 \u2014 held for manual fraud review."
   },
   {
-    "order_id": "5c33198e",
+    "order_id": "txn_000040",
     "user_id": "user_118",
     "agent_id": "agent_23",
     "order_category": "footwear",
@@ -864,7 +895,7 @@
     "reason": "Fraud-risk score 0.51 exceeds threshold 0.5 \u2014 held for manual fraud review."
   },
   {
-    "order_id": "92b31017",
+    "order_id": "txn_000043",
     "user_id": "user_1",
     "agent_id": "agent_9",
     "order_category": "footwear",
@@ -881,7 +912,7 @@
     "reason": "Fraud-risk score 0.89 exceeds threshold 0.5 \u2014 held for manual fraud review."
   },
   {
-    "order_id": "2463e20c",
+    "order_id": "txn_000044",
     "user_id": "user_465",
     "agent_id": "agent_15",
     "order_category": "electronics",
@@ -898,7 +929,7 @@
     "reason": "Fraud-risk score 0.77 exceeds threshold 0.5 \u2014 held for manual fraud review."
   },
   {
-    "order_id": "ac810ddb",
+    "order_id": "txn_000009",
     "user_id": "user_58",
     "agent_id": "agent_53",
     "order_category": "flights",
@@ -915,7 +946,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.29), but this customer's history (preference-fit 0.94) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
   },
   {
-    "order_id": "1537f388",
+    "order_id": "txn_000012",
     "user_id": "user_298",
     "agent_id": "agent_10",
     "order_category": "footwear",
@@ -932,7 +963,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.36), but this customer's history (preference-fit 0.92) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
   },
   {
-    "order_id": "026c5240",
+    "order_id": "txn_000017",
     "user_id": "user_164",
     "agent_id": "agent_44",
     "order_category": "flights",
@@ -949,7 +980,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.38), but this customer's history (preference-fit 0.64) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
   },
   {
-    "order_id": "4470727d",
+    "order_id": "txn_000031",
     "user_id": "user_71",
     "agent_id": "agent_39",
     "order_category": "footwear",
@@ -966,7 +997,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.23), but this customer's history (preference-fit 0.50) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
   },
   {
-    "order_id": "047f8af2",
+    "order_id": "txn_000045",
     "user_id": "user_267",
     "agent_id": "agent_35",
     "order_category": "groceries",
@@ -983,7 +1014,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.32), but this customer's history (preference-fit 0.50) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
   },
   {
-    "order_id": "9d2f8b4d",
+    "order_id": "txn_000112",
     "user_id": "user_321",
     "agent_id": "agent_24",
     "order_category": "flights",
@@ -1000,7 +1031,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.33), but this customer's history (preference-fit 0.73) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
   },
   {
-    "order_id": "f29b0cfa",
+    "order_id": "txn_000122",
     "user_id": "user_16",
     "agent_id": "agent_26",
     "order_category": "home",
@@ -1017,7 +1048,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.44), but this customer's history (preference-fit 0.69) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
   },
   {
-    "order_id": "732c5747",
+    "order_id": "txn_000134",
     "user_id": "user_221",
     "agent_id": "agent_29",
     "order_category": "footwear",
@@ -1034,7 +1065,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.18), but this customer's history (preference-fit 0.66) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
   },
   {
-    "order_id": "9ce8a32a",
+    "order_id": "txn_000169",
     "user_id": "user_277",
     "agent_id": "agent_5",
     "order_category": "groceries",
@@ -1051,7 +1082,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.32), but this customer's history (preference-fit 0.99) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
   },
   {
-    "order_id": "d78f26d1",
+    "order_id": "txn_000178",
     "user_id": "user_30",
     "agent_id": "agent_36",
     "order_category": "home",
@@ -1068,7 +1099,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.30), but this customer's history (preference-fit 0.85) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
   },
   {
-    "order_id": "3063adcc",
+    "order_id": "txn_000184",
     "user_id": "user_291",
     "agent_id": "agent_17",
     "order_category": "flights",
@@ -1085,7 +1116,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.13), but this customer's history (preference-fit 0.75) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
   },
   {
-    "order_id": "69bf0c55",
+    "order_id": "txn_000191",
     "user_id": "user_137",
     "agent_id": "agent_20",
     "order_category": "fashion",
@@ -1102,7 +1133,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.31), but this customer's history (preference-fit 0.54) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
   },
   {
-    "order_id": "cd078a95",
+    "order_id": "txn_000199",
     "user_id": "user_149",
     "agent_id": "agent_58",
     "order_category": "electronics",
@@ -1119,7 +1150,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.37), but this customer's history (preference-fit 0.80) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
   },
   {
-    "order_id": "795d79e5",
+    "order_id": "txn_000243",
     "user_id": "user_72",
     "agent_id": "agent_5",
     "order_category": "fashion",
@@ -1136,7 +1167,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.45), but this customer's history (preference-fit 0.69) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
   },
   {
-    "order_id": "3ea5dffd",
+    "order_id": "txn_000246",
     "user_id": "user_447",
     "agent_id": "agent_9",
     "order_category": "groceries",
@@ -1153,7 +1184,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.37), but this customer's history (preference-fit 0.93) suggests they may welcome this \u2014 routed to a quick human confirmation instead of auto-block."
   },
   {
-    "order_id": "fbb34990",
+    "order_id": "txn_000006",
     "user_id": "user_396",
     "agent_id": "agent_26",
     "order_category": "flights",
@@ -1170,7 +1201,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.41) and doesn't align with this customer's history (preference-fit 0.42) \u2014 likely a mistaken purchase, held to prevent a probable return."
   },
   {
-    "order_id": "687acf08",
+    "order_id": "txn_000014",
     "user_id": "user_77",
     "agent_id": "agent_35",
     "order_category": "footwear",
@@ -1187,7 +1218,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.41) and doesn't align with this customer's history (preference-fit 0.12) \u2014 likely a mistaken purchase, held to prevent a probable return."
   },
   {
-    "order_id": "1bb3c954",
+    "order_id": "txn_000021",
     "user_id": "user_474",
     "agent_id": "agent_26",
     "order_category": "fashion",
@@ -1204,7 +1235,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.33) and doesn't align with this customer's history (preference-fit 0.36) \u2014 likely a mistaken purchase, held to prevent a probable return."
   },
   {
-    "order_id": "cce47ea5",
+    "order_id": "txn_000024",
     "user_id": "user_484",
     "agent_id": "agent_15",
     "order_category": "footwear",
@@ -1221,7 +1252,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.36) and doesn't align with this customer's history (preference-fit 0.04) \u2014 likely a mistaken purchase, held to prevent a probable return."
   },
   {
-    "order_id": "934fa538",
+    "order_id": "txn_000035",
     "user_id": "user_410",
     "agent_id": "agent_39",
     "order_category": "flights",
@@ -1238,7 +1269,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.39) and doesn't align with this customer's history (preference-fit 0.17) \u2014 likely a mistaken purchase, held to prevent a probable return."
   },
   {
-    "order_id": "cec10fd1",
+    "order_id": "txn_000039",
     "user_id": "user_172",
     "agent_id": "agent_36",
     "order_category": "footwear",
@@ -1255,7 +1286,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.30) and doesn't align with this customer's history (preference-fit 0.08) \u2014 likely a mistaken purchase, held to prevent a probable return."
   },
   {
-    "order_id": "2d0575d4",
+    "order_id": "txn_000063",
     "user_id": "user_350",
     "agent_id": "agent_33",
     "order_category": "flights",
@@ -1272,7 +1303,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.25) and doesn't align with this customer's history (preference-fit 0.06) \u2014 likely a mistaken purchase, held to prevent a probable return."
   },
   {
-    "order_id": "736639a2",
+    "order_id": "txn_000075",
     "user_id": "user_204",
     "agent_id": "agent_55",
     "order_category": "footwear",
@@ -1289,7 +1320,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.29) and doesn't align with this customer's history (preference-fit 0.12) \u2014 likely a mistaken purchase, held to prevent a probable return."
   },
   {
-    "order_id": "31b7d4d0",
+    "order_id": "txn_000104",
     "user_id": "user_118",
     "agent_id": "agent_53",
     "order_category": "footwear",
@@ -1306,7 +1337,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.29) and doesn't align with this customer's history (preference-fit 0.18) \u2014 likely a mistaken purchase, held to prevent a probable return."
   },
   {
-    "order_id": "35ad74cc",
+    "order_id": "txn_000106",
     "user_id": "user_31",
     "agent_id": "agent_44",
     "order_category": "home",
@@ -1323,7 +1354,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.14) and doesn't align with this customer's history (preference-fit 0.05) \u2014 likely a mistaken purchase, held to prevent a probable return."
   },
   {
-    "order_id": "67882cfa",
+    "order_id": "txn_000113",
     "user_id": "user_201",
     "agent_id": "agent_59",
     "order_category": "electronics",
@@ -1340,7 +1371,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.27) and doesn't align with this customer's history (preference-fit 0.06) \u2014 likely a mistaken purchase, held to prevent a probable return."
   },
   {
-    "order_id": "a05722c7",
+    "order_id": "txn_000114",
     "user_id": "user_167",
     "agent_id": "agent_48",
     "order_category": "home",
@@ -1357,7 +1388,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.27) and doesn't align with this customer's history (preference-fit 0.05) \u2014 likely a mistaken purchase, held to prevent a probable return."
   },
   {
-    "order_id": "8356abf2",
+    "order_id": "txn_000120",
     "user_id": "user_189",
     "agent_id": "agent_39",
     "order_category": "flights",
@@ -1374,7 +1405,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.39) and doesn't align with this customer's history (preference-fit 0.37) \u2014 likely a mistaken purchase, held to prevent a probable return."
   },
   {
-    "order_id": "b7e9ffa7",
+    "order_id": "txn_000129",
     "user_id": "user_164",
     "agent_id": "agent_21",
     "order_category": "flights",
@@ -1391,7 +1422,7 @@
     "reason": "Order deviates from stated intent (intent-match confidence 0.42) and doesn't align with this customer's history (preference-fit 0.24) \u2014 likely a mistaken purchase, held to prevent a probable return."
   },
   {
-    "order_id": "75f49e57",
+    "order_id": "txn_000137",
     "user_id": "user_62",
     "agent_id": "agent_16",
     "order_category": "home",
@@ -1572,10 +1603,81 @@ reviewCard.innerHTML = `
     <div class="review-signal"><span class="label">system reasoning</span><span class="value" style="text-align:right; max-width:280px; color:var(--muted);">${flaggedExample.reason}</span></div>
   </div>
   <div class="review-actions">
-    <button class="review-btn approve" onclick="this.parentElement.parentElement.style.opacity='0.4'; this.parentElement.innerHTML='<span style=\\'color:var(--go);font-family:var(--mono);font-size:12px\\'>✓ Approved by analyst</span>'">Approve anyway</button>
-    <button class="review-btn reject" onclick="this.parentElement.parentElement.style.opacity='0.4'; this.parentElement.innerHTML='<span style=\\'color:var(--stop);font-family:var(--mono);font-size:12px\\'>✕ Rejected by analyst</span>'">Reject</button>
+    <button class="review-btn approve" id="review-approve-btn">Approve anyway</button>
+    <button class="review-btn reject" id="review-reject-btn">Reject</button>
   </div>
 `;
+
+// PATTERN NARRATIVE — real, live: fetches deterministically-detected
+// clusters (shared pincode, new-agent bursts, repeat agents) across the
+// current fraud-review batch, phrased either by an LLM (if the API has
+// an ANTHROPIC_API_KEY set) or a deterministic template otherwise. See
+// src/pattern_narrative.py -- the DETECTION is always deterministic and
+// auditable; only the PHRASING optionally uses an LLM.
+async function loadNarrative() {
+  const narrativeText = document.getElementById('narrative-text');
+  const narrativeSource = document.getElementById('narrative-source');
+  try {
+    const res = await fetch('http://localhost:5050/fraud_batch_narrative', { signal: AbortSignal.timeout(4000) });
+    if (res.ok) {
+      const data = await res.json();
+      narrativeText.textContent = data.narrative;
+      narrativeSource.textContent = data.narrative_source.startsWith('llm') ? '\u25cf LLM-phrased' : '\u25cb template';
+      return;
+    }
+  } catch (e) { /* API not running */ }
+  narrativeText.textContent = 'API not running -- start python3 src/api.py to see the live pattern narrative for the current fraud-review batch.';
+  narrativeSource.textContent = '';
+}
+loadNarrative();
+
+// Real Approve/Reject actions — actually call /record_outcome so this
+// is a functioning feedback mechanism, not a cosmetic UI change. See
+// src/feedback_loop.py for what happens to this recorded outcome.
+async function recordOutcome(confirmedFraud) {
+  const orderId = flaggedExample.order_id;
+  const card = document.querySelector('.review-actions');
+  try {
+    const res = await fetch('http://localhost:5050/record_outcome', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_id: orderId, confirmed_fraud: confirmedFraud, analyst_note: 'recorded from dashboard' }),
+    });
+    if (res.ok) {
+      card.parentElement.style.opacity = '0.4';
+      const label = confirmedFraud ? 'Confirmed fraud — recorded' : 'Cleared — recorded';
+      const color = confirmedFraud ? 'var(--stop)' : 'var(--go)';
+      card.innerHTML = `<span style="color:${color};font-family:var(--mono);font-size:12px">${confirmedFraud ? '\u2715' : '\u2713'} ${label}</span>`;
+      await refreshFeedbackStatus();
+      return;
+    }
+  } catch (e) { /* API not running */ }
+  card.innerHTML = '<span style="color:var(--dim);font-family:var(--mono);font-size:12px">API not running \u2014 outcome not recorded</span>';
+}
+
+// Shows whether the recorded outcomes so far agree with what the model
+// predicted — the actual "does the feedback loop close" evidence, not
+// just a silent CSV write. See src/feedback_loop.py evaluate_against_feedback().
+async function refreshFeedbackStatus() {
+  const panel = document.getElementById('feedback-status-panel');
+  const text = document.getElementById('feedback-status-text');
+  try {
+    const res = await fetch('http://localhost:5050/feedback_status', { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.status === 'evaluated') {
+        panel.classList.add('has-data');
+        const pct = (data.accuracy_vs_real_outcomes * 100).toFixed(1);
+        text.textContent = `${data.count} outcome(s) recorded so far this session \u2014 model's HOLD_FRAUD_REVIEW decision matched the confirmed real outcome ${pct}% of the time (${data.confirmed_fraud_count} confirmed fraud, ${data.confirmed_not_fraud_count} confirmed not-fraud). This is exactly the shadow-mode check a real deployment would run before trusting a retrain \u2014 see src/feedback_loop.py.`;
+      } else {
+        text.textContent = 'Outcome recorded, but not yet matched against the dataset (this can happen if it was a manually-entered order_id). Try again from the live dashboard flow.';
+      }
+    }
+  } catch (e) { /* leave as-is */ }
+}
+
+document.getElementById('review-approve-btn').addEventListener('click', () => recordOutcome(false));
+document.getElementById('review-reject-btn').addEventListener('click', () => recordOutcome(true));
 // LIVE SIMULATION — now runs the FULL loop: shopping agent proposes,
 // RiskGate scores. Calls /full_loop (generates a fresh human intent,
 // proposes a real catalog match, scores it) instead of /simulate

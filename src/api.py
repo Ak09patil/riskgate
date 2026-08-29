@@ -143,9 +143,55 @@ def full_loop():
     })
 
 
+@app.route("/fraud_batch_narrative", methods=["GET"])
+def fraud_batch_narrative():
+    """
+    Real endpoint for the pattern-narrative feature: pulls the most
+    recent batch of HOLD_FRAUD_REVIEW transactions and returns both the
+    deterministic clusters AND the narrative — see pattern_narrative.py
+    for why the detection stays deterministic and only the phrasing
+    optionally uses an LLM.
+    """
+    from pattern_narrative import generate_narrative
+    df = pd.read_csv(f"{BASE_DIR}/data/full_merged.csv")
+    flagged = df[df["decision"] == "HOLD_FRAUD_REVIEW"].head(40)
+    result = generate_narrative(flagged)
+    return jsonify(result)
+
+
+@app.route("/record_outcome", methods=["POST"])
+def record_outcome_endpoint():
+    """
+    Real endpoint behind the Fraud queue's Approve/Reject buttons — logs
+    a human-confirmed real outcome for a held transaction. See
+    feedback_loop.py for what this outcome is later used for
+    (evaluation against real results, and a demonstrated retrain path).
+    """
+    from feedback_loop import record_outcome
+    body = request.get_json() or {}
+    order_id = body.get("order_id")
+    confirmed_fraud = body.get("confirmed_fraud")
+    note = body.get("analyst_note", "")
+    if order_id is None or confirmed_fraud is None:
+        return jsonify({"error": "order_id and confirmed_fraud are required"}), 400
+    record_outcome(order_id, bool(confirmed_fraud), note)
+    return jsonify({"status": "recorded", "order_id": order_id})
+
+
+@app.route("/feedback_status", methods=["GET"])
+def feedback_status():
+    """Shows how the model's predictions compare against real recorded
+    outcomes so far — the honest 'did we get it right' check."""
+    from feedback_loop import evaluate_against_feedback
+    return jsonify(evaluate_against_feedback())
+
+
 if __name__ == "__main__":
     print("RiskGate live API running on http://localhost:5050")
-    print("  GET  /simulate   -> scores a random real transaction, live")
-    print("  GET  /full_loop  -> shopping agent proposes + RiskGate scores, live")
-    print("  POST /score      -> scores a transaction you send in the body")
+    print("  GET  /simulate               -> scores a random real transaction, live")
+    print("  GET  /full_loop              -> shopping agent proposes + RiskGate scores, live")
+    print("  POST /score                  -> scores a transaction you send in the body")
+    print("  GET  /fraud_batch_narrative   -> pattern narrative for the current fraud-review batch")
+    print("  POST /record_outcome         -> logs a real confirmed outcome for a held transaction")
+    print("  GET  /feedback_status        -> model accuracy vs. real recorded outcomes so far")
     app.run(port=5050, debug=False)

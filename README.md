@@ -3,8 +3,7 @@
 A risk layer for AI-agent-initiated transactions. See `docs/SPEC.md` for
 the full problem framing and design reasoning.
 
-## How the pieces actually connect 
-
+## How the pieces actually connect (this matters)
 
 This is one system, not separate scripts:
 
@@ -43,6 +42,21 @@ This is one system, not separate scripts:
 10. `dashboard/index.html` → four-tab UI (Consumer, Merchant, Razorpay,
     Fraud queue). Calls the live API at `localhost:5050` when running;
     falls back to the pre-built replay data if the server isn't up.
+11. `src/pattern_narrative.py` → the one place RiskGate uses an LLM, and
+    deliberately not for the actual decision. Deterministically detects
+    shared-attribute clusters (pincode, new-agent bursts, repeat agents)
+    across a batch of held transactions using plain pandas, then
+    optionally calls Claude to phrase those already-computed facts into
+    readable prose (falls back to a clean template with no API key
+    needed — the feature works fully without one). Exposed via
+    `/fraud_batch_narrative`, shown in the dashboard's Fraud queue tab.
+12. `src/feedback_loop.py` → a real, working shadow-mode mechanism, not
+    just a described one: records a held transaction's confirmed real
+    outcome, evaluates the model against real outcomes so far, and
+    demonstrates retraining with feedback folded in — fairly compared
+    against the same held-out test set. Exposed via `/record_outcome`
+    and `/feedback_status`; the dashboard's Fraud queue Approve/Reject
+    buttons actually call this now, not just a cosmetic UI change.
 
 ## Running it for real (live, not replayed)
 
@@ -64,11 +78,16 @@ python3 src/embed_dashboard_data.py   # re-embeds it into dashboard/index.html
 # 3. start the live API
 python3 src/api.py
 # -> running on http://localhost:5050
+# optional: export ANTHROPIC_API_KEY=... before starting the API to get
+# LLM-phrased pattern narratives in the Fraud queue tab (instead of the
+# clean deterministic template, which is used by default with no key)
 
 # 4. open dashboard/index.html in a browser
 # The "Run new transaction" button will now show "● LIVE" and call the
 # real pipeline. Without the API running, it falls back to "○ replay"
-# using the data built in step 2.
+# using the data built in step 2. The Fraud queue tab's Approve/Reject
+# buttons now actually call /record_outcome — a real feedback mechanism,
+# not a cosmetic UI change (see src/feedback_loop.py).
 
 # 5. optional — validation experiments (not required to run the product,
 # but worth running to see the honesty checks behind the reported numbers)
@@ -78,6 +97,8 @@ python3 src/baseline_comparison.py # proves the model beats a naive rule (F2: 0.
 #   mkdir -p /tmp/realdata && curl -o /tmp/realdata/creditcard.csv \
 #     https://raw.githubusercontent.com/nsethi31/Kaggle-Data-Credit-Card-Fraud-Detection/master/creditcard.csv
 python3 src/real_data_validation.py # validates our methodology on real fraud data (AUC 0.972)
+python3 src/pattern_narrative.py    # standalone demo of the batch pattern-detection + narrative
+python3 src/feedback_loop.py        # standalone demo of the feedback/retrain mechanism
 python3 src/drift_test.py         # tests the model against a shifted distribution
 python3 src/cost_sensitivity.py   # threshold tradeoff table at illustrative scale
 
@@ -190,6 +211,27 @@ python3 src/cost_sensitivity.py   # threshold tradeoff table at illustrative sca
   floating-point behavior we can't fully control across every numpy/BLAS
   build. Verified: reported metrics are unchanged (within normal seed
   variance) before and after.
+- The first version of `pattern_narrative.py`'s cluster detection flagged
+  a "repeat agent" as any agent appearing 2+ times in a batch — with only
+  ~60 unique agents across the dataset, that's common by pure chance,
+  not a real signal. A 40-transaction test batch produced 17 "patterns,"
+  most of them noise. Fixed by raising the threshold to 3+ occurrences
+  and capping the summary at the 5 strongest clusters — the same batch
+  now surfaces 5 genuinely meaningful patterns instead of crying wolf.
+- `order_id` was generated with `uuid.uuid4()` — unlike every other field,
+  it wasn't derived from the seeded `rng`, so it was different on every
+  run of `generate_data.py` even though the underlying transaction data
+  was otherwise reproducible. This surfaced as a real, user-hit bug: the
+  dashboard's embedded data referenced an order_id that no longer existed
+  after the pipeline was rerun, so `/feedback_status` couldn't match a
+  recorded outcome back to a transaction. Fixed by making `order_id`
+  deterministic (`txn_{index:06d}`) — and specifically non-numeric-only,
+  since an initial fix using a bare zero-padded number got silently
+  reinterpreted as an integer on CSV read, stripping the leading zeros
+  and reintroducing the same mismatch a different way. Verified by
+  actually reproducing the original failure scenario (embed data, rerun
+  the full pipeline, check the ID still matches) — not just checking the
+  fix looked right.
 
 ## Why this, not a simpler thing
 
