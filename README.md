@@ -278,6 +278,28 @@ that only happens to work on data we designed ourselves. The raw dataset
 datasets — but the script documents exactly how to fetch it and reproduce
 this result.
 
+**Worth being direct about:** this is a well-studied public benchmark —
+published results with more complex models (gradient boosting, ensembles,
+SMOTE oversampling) report higher AUC and AUPRC on this same dataset.
+We're not claiming state-of-the-art. Chasing a higher number here would
+have meant abandoning the interpretable, auditable model family this
+whole project argues for in the first place (see "AI Judgment" in
+`docs/ARCHITECTURE.md`) — the point of this validation is that our
+*methodology* is sound on real data, not that it's optimal.
+
+**On the 11% of real fraud this misses:** at any real, large transaction
+volume, that's genuine absolute loss, not a rounding error, and it
+deserves to be stated plainly rather than softened. Three things are true
+about it at once: no fraud detector anywhere catches 100% of fraud,
+including Thirdwatch's; the threshold that produced this 88.8% recall is
+a tunable choice, not a ceiling — `src/cost_sensitivity.py` exists
+specifically to make that tradeoff curve visible so it can be set
+deliberately against real cost data, not left at whatever a proxy metric
+picked; and this model was never meant to be the only layer — see "How
+this fits with what Razorpay already has" above. A single model's recall
+number is one layer's contribution to a defended system, not the whole
+defense.
+
 ## Cost at real scale (not just at 4,000 rows)
 
 Our fraud model's held-out test set (800 transactions, 29.5% fraud rate —
