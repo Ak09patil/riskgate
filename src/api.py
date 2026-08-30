@@ -32,7 +32,20 @@ _ATTRIBUTES = [f"attr_{i}" for i in range(1, 6)]
 @app.route("/score", methods=["POST"])
 def score():
     txn = request.get_json()
-    result = score_transaction(txn)
+    if not txn:
+        return jsonify({"error": "request body must be valid JSON with transaction fields"}), 400
+    required = ["order_price", "order_category", "order_key_attribute", "payment_mode",
+                "pincode", "agent_age_days", "intent_category", "intent_max_price",
+                "intent_key_attribute", "user_historical_category",
+                "user_past_over_budget_kept_rate", "device_ip_consistency",
+                "user_account_age_days"]
+    missing = [f for f in required if f not in txn]
+    if missing:
+        return jsonify({"error": f"missing required fields: {missing}"}), 400
+    try:
+        result = score_transaction(txn)
+    except Exception as e:
+        return jsonify({"error": f"scoring failed: {e}"}), 400
     result["order_id"] = txn.get("order_id", "manual")
     result["agent_id"] = txn.get("agent_id", "unknown")
     result["order_category"] = txn.get("order_category")
@@ -82,9 +95,13 @@ def full_loop():
     """
     if request.method == "POST":
         body = request.get_json() or {}
+        try:
+            max_price = float(body.get("max_price", random.uniform(1000, 7000)))
+        except (TypeError, ValueError):
+            return jsonify({"error": "max_price must be a number"}), 400
         intent = {
             "category": body.get("category", random.choice(_CATEGORIES)),
-            "max_price": float(body.get("max_price", random.uniform(1000, 7000))),
+            "max_price": max_price,
             "key_attribute": body.get("key_attribute", random.choice(_ATTRIBUTES)),
             "allow_over_budget": body.get("allow_over_budget", True),
         }

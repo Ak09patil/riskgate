@@ -218,6 +218,20 @@ python3 src/cost_sensitivity.py   # threshold tradeoff table at illustrative sca
   the exact same class of bug as the `gating.py` duplication caught
   earlier, just spread across more files. Fixed by importing
   `FRAUD_FEATURES` from `pipeline.py` everywhere instead.
+- Before submission, we deliberately cloned the actual public GitHub
+  repo fresh (not just deleted local files) and re-ran the full 14-script
+  pipeline against it, to catch anything that only reproduces from a
+  genuinely clean checkout. That pass also surfaced real API robustness
+  gaps: `/score` crashed with a raw 500 error on an empty or incomplete
+  request body instead of a clean error message (unlike `/record_outcome`,
+  which already validated its input), and `/full_loop` crashed if
+  `max_price` was sent as non-numeric text — a real risk since that field
+  comes directly from a browser input in `demo/checkout.html`. Fixed both
+  with explicit validation and clear error responses. Also found the
+  Fraud queue's Approve/Reject buttons had no protection against a rapid
+  double-click, which would silently record the same outcome twice and
+  skew the feedback-accuracy count — fixed with the same disable-while-
+  pending pattern already used elsewhere in the dashboard.
 - On some machines (different numpy/BLAS builds than our dev environment
   — confirmed on an ARM Mac using Apple's Accelerate framework), training
   produced `RuntimeWarning: overflow encountered in matmul` during

@@ -1634,9 +1634,14 @@ loadNarrative();
 // Real Approve/Reject actions — actually call /record_outcome so this
 // is a functioning feedback mechanism, not a cosmetic UI change. See
 // src/feedback_loop.py for what happens to this recorded outcome.
+let recordingOutcome = false;
 async function recordOutcome(confirmedFraud) {
+  if (recordingOutcome) return;
+  recordingOutcome = true;
   const orderId = flaggedExample.order_id;
   const card = document.querySelector('.review-actions');
+  document.getElementById('review-approve-btn').disabled = true;
+  document.getElementById('review-reject-btn').disabled = true;
   try {
     const res = await fetch('http://localhost:5050/record_outcome', {
       method: 'POST',
