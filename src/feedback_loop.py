@@ -129,14 +129,14 @@ def simulate_retrain_with_feedback() -> dict:
         d["is_cod"] = (d["payment_mode"] == "COD").astype(int)
         d["is_new_agent"] = (d["agent_age_days"] < NEW_AGENT_AGE_DAYS).astype(int)
         d["high_value"] = (d["order_value"] > HIGH_VALUE_THRESHOLD).astype(int)
+        d["cod_and_high_value"] = d["is_cod"] * d["high_value"]
     pincode_rate_map = augmented_train.groupby("pincode")["is_fraud"].mean()
     global_rate = augmented_train["is_fraud"].mean()
     for d in (augmented_train, original_test):
         d["pincode_return_rate"] = d["pincode"].map(pincode_rate_map).fillna(global_rate)
 
-    FEATURES = ["device_ip_consistency", "is_cod", "pincode_return_rate",
-                "is_new_agent", "high_value", "agent_age_days", "order_value",
-                "user_account_age_days"]
+    from pipeline import FRAUD_FEATURES
+    FEATURES = FRAUD_FEATURES  # imported, not duplicated
 
     scaler = StandardScaler()
     X_train = scaler.fit_transform(augmented_train[FEATURES])

@@ -25,11 +25,8 @@ from sklearn.metrics import precision_score, recall_score, roc_auc_score
 
 df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
 
-FEATURES = [
-    "device_ip_consistency", "is_cod", "pincode_return_rate",
-    "is_new_agent", "high_value", "agent_age_days", "order_value",
-    "user_account_age_days",
-]
+from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES
+FEATURES = FRAUD_FEATURES  # imported, not duplicated — see train_fraud_model.py
 
 results = []
 for seed in [42, 7, 123, 2026, 99]:
@@ -41,9 +38,9 @@ for seed in [42, 7, 123, 2026, 99]:
     test_df = test_df.copy()
     for d in (train_df, test_df):
         d["is_cod"] = (d["payment_mode"] == "COD").astype(int)
-        from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD
         d["is_new_agent"] = (d["agent_age_days"] < NEW_AGENT_AGE_DAYS).astype(int)
         d["high_value"] = (d["order_value"] > HIGH_VALUE_THRESHOLD).astype(int)
+        d["cod_and_high_value"] = d["is_cod"] * d["high_value"]
     train_df["pincode_return_rate"] = train_df["pincode"].map(pincode_rate_map)
     test_df["pincode_return_rate"] = test_df["pincode"].map(pincode_rate_map).fillna(global_fraud_rate)
 

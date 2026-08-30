@@ -195,6 +195,29 @@ python3 src/cost_sensitivity.py   # threshold tradeoff table at illustrative sca
   general fraud indicators — chosen independent of what makes the metric
   look good, not after the fact. See `src/generate_data.py` for the
   reasoning behind each weight.
+- We tested a real, targeted hypothesis: does a COD-and-high-value
+  interaction feature add signal beyond the two factors separately? Raw
+  correlation looked strong (43.1% fraud rate for both together vs.
+  17.5% for neither), so we added it, retrained, and checked honestly —
+  AUC stayed flat (0.732), F2 improved marginally (0.695 → 0.699), and
+  the new feature's own learned weight was small and slightly negative
+  (−0.067). The lesson: a strong raw correlation doesn't guarantee a
+  strong *marginal* contribution once the two underlying factors are
+  already in the model as separate features — logistic regression can
+  partially capture "both true" just by summing their individual
+  weights. Kept the feature anyway (real, if small, improvement; zero
+  cost), but reported the actual size of the effect rather than
+  overselling the raw correlation that motivated it.
+- Adding that one feature required updating the shared feature list in
+  `pipeline.py` — and revealed that six other files
+  (`train_fraud_model.py`, `seed_validation.py`, `drift_test.py`,
+  `baseline_comparison.py`, `cost_sensitivity.py`, `feedback_loop.py`)
+  each had their own hardcoded copy of the same feature list, not
+  imported from the shared source. All six would have silently kept
+  scoring the old feature set while `pipeline.py` used the new one —
+  the exact same class of bug as the `gating.py` duplication caught
+  earlier, just spread across more files. Fixed by importing
+  `FRAUD_FEATURES` from `pipeline.py` everywhere instead.
 - On some machines (different numpy/BLAS builds than our dev environment
   — confirmed on an ARM Mac using Apple's Accelerate framework), training
   produced `RuntimeWarning: overflow encountered in matmul` during

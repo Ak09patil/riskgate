@@ -30,19 +30,18 @@ ILLUSTRATIVE_DAILY_VOLUME = 1_000_000
 df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
 train_df, test_df = train_test_split(df, test_size=0.2, random_state=42, stratify=df["is_fraud"])
 
+from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES
+
 pincode_rate_map = train_df.groupby("pincode")["is_fraud"].mean()
 global_fraud_rate = train_df["is_fraud"].mean()
 test_df = test_df.copy()
 test_df["pincode_return_rate"] = test_df["pincode"].map(pincode_rate_map).fillna(global_fraud_rate)
 test_df["is_cod"] = (test_df["payment_mode"] == "COD").astype(int)
-test_df["is_new_agent"] = (test_df["agent_age_days"] < 15).astype(int)
-test_df["high_value"] = (test_df["order_value"] > 5000).astype(int)
+test_df["is_new_agent"] = (test_df["agent_age_days"] < NEW_AGENT_AGE_DAYS).astype(int)
+test_df["high_value"] = (test_df["order_value"] > HIGH_VALUE_THRESHOLD).astype(int)
+test_df["cod_and_high_value"] = test_df["is_cod"] * test_df["high_value"]
 
-FEATURES = [
-    "device_ip_consistency", "is_cod", "pincode_return_rate",
-    "is_new_agent", "high_value", "agent_age_days", "order_value",
-    "user_account_age_days",
-]
+FEATURES = FRAUD_FEATURES  # imported, not duplicated
 model = joblib.load(f"{BASE_DIR}/models/fraud_model.pkl")
 scaler = joblib.load(f"{BASE_DIR}/models/fraud_scaler.pkl")
 X_test_scaled = scaler.transform(test_df[FEATURES])

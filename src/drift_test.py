@@ -86,19 +86,16 @@ if __name__ == "__main__":
     global_fraud_rate = lookup["global_fraud_rate"]
 
     drifted["is_cod"] = (drifted["payment_mode"] == "COD").astype(int)
-    from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD
+    from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES
     drifted["is_new_agent"] = (drifted["agent_age_days"] < NEW_AGENT_AGE_DAYS).astype(int)
     drifted["high_value"] = (drifted["order_value"] > HIGH_VALUE_THRESHOLD).astype(int)
+    drifted["cod_and_high_value"] = drifted["is_cod"] * drifted["high_value"]
     # IMPORTANT: use the ORIGINAL training-time pincode lookup, not a new
     # one fit on drifted data — this is the honest test: does the model,
     # as originally trained, still work on a shifted world?
     drifted["pincode_return_rate"] = drifted["pincode"].map(pincode_rate_map).fillna(global_fraud_rate)
 
-    FEATURES = [
-        "device_ip_consistency", "is_cod", "pincode_return_rate",
-        "is_new_agent", "high_value", "agent_age_days", "order_value",
-        "user_account_age_days",
-    ]
+    FEATURES = FRAUD_FEATURES  # imported, not duplicated
     X = drifted[FEATURES]
     X_scaled = fraud_scaler.transform(X)
     y_true = drifted["is_fraud"]

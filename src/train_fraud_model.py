@@ -40,16 +40,18 @@ import joblib
 df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
 
 # --- feature engineering ---
+from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES
 df["is_cod"] = (df["payment_mode"] == "COD").astype(int)
-from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD
 df["is_new_agent"] = (df["agent_age_days"] < NEW_AGENT_AGE_DAYS).astype(int)
 df["high_value"] = (df["order_value"] > HIGH_VALUE_THRESHOLD).astype(int)
+df["cod_and_high_value"] = df["is_cod"] * df["high_value"]
 
-FEATURES = [
-    "device_ip_consistency", "is_cod", "pincode_return_rate",
-    "is_new_agent", "high_value", "agent_age_days", "order_value",
-    "user_account_age_days",
-]
+# Import the feature list from pipeline.py rather than keep a second copy
+# here — this is exactly the same duplication risk that broke gating.py
+# before (a change made in one copy but not the other). One list, one
+# source of truth: adding cod_and_high_value here required updating
+# pipeline.py only, not two files.
+FEATURES = FRAUD_FEATURES
 
 # --- train/test split FIRST, before any leakage-prone feature is built ---
 # pincode_return_rate must be computed ONLY from training data, then applied
