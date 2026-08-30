@@ -26,11 +26,21 @@ def propose_purchase(intent: dict) -> dict:
 
     Returns a proposed order dict shaped for pipeline.score_transaction(),
     or None if nothing in the category exists at all.
+
+    Raises ValueError for a non-positive max_price — this is validated
+    HERE, not just at the API layer, because a negative or zero budget
+    silently proceeding would otherwise produce a nonsensical proposal
+    (found via direct-call testing: a -500 budget was treated as "over
+    budget" and matched to a real, positive-priced product, which is
+    wrong, not just unvalidated).
     """
     category = intent["category"]
     max_price = intent["max_price"]
     key_attribute = intent["key_attribute"]
     allow_over_budget = intent.get("allow_over_budget", True)
+
+    if max_price is None or max_price <= 0:
+        raise ValueError(f"max_price must be positive, got {max_price}")
 
     candidates = [item for item in CATALOG if item["category"] == category]
     if not candidates:

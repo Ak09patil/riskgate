@@ -130,6 +130,20 @@ class TestShoppingAgent:
         assert proposal is not None
         assert proposal["matched_rule"] == "over_budget_closest_available"
 
+    def test_rejects_negative_max_price_even_when_called_directly(self):
+        """Defense-in-depth regression test — the API layer already
+        validated this, but calling propose_purchase() DIRECTLY (as any
+        future script or test might) previously had zero protection and
+        silently proposed a real product against a negative budget."""
+        intent = {"category": "footwear", "max_price": -500, "key_attribute": "attr_2"}
+        with pytest.raises(ValueError):
+            propose_purchase(intent)
+
+    def test_rejects_zero_max_price_even_when_called_directly(self):
+        intent = {"category": "footwear", "max_price": 0, "key_attribute": "attr_2"}
+        with pytest.raises(ValueError):
+            propose_purchase(intent)
+
     def test_unknown_category_returns_none_not_a_crash(self):
         intent = {"category": "not_a_real_category", "max_price": 5000, "key_attribute": "attr_1"}
         proposal = propose_purchase(intent)

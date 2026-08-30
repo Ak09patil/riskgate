@@ -119,6 +119,35 @@ representative. Both real findings from this pass now have their own
 automated regression tests (`tests/test_integration.py`), so neither
 can silently reappear.
 
+## 7. Second proactive pass — deeper concurrency, defense-in-depth, and an honest limit
+
+**Higher-concurrency stress test.** The original concurrency fix was
+verified at 30 threads via Flask's in-process test client. Pushed
+further: 100 real concurrent HTTP requests (via Python's `requests`
+library and a thread pool, hitting the actual running server, not the
+test client) — 100/100 succeeded, 100/100 rows survived, exactly one
+header row. No sign of the race reappearing at higher load.
+
+**Defense-in-depth gap, found and fixed.** `/full_loop`'s API-level
+validation already rejected a non-positive `max_price` — but calling
+`shopping_agent.propose_purchase()` **directly**, bypassing the API
+entirely, had zero protection: a `-500` budget was silently treated as
+"everything is over this budget" and matched to a real, positive-priced
+product. Not a crash — worse, a plausible-looking wrong answer. Fixed
+by validating at the function itself, not only at the one entry point
+that happened to call it first. Two new automated tests cover this.
+
+**An honest limit we're naming, not hiding: true cross-browser testing
+was not performed.** Every screenshot and manual verification in this
+project was done in Safari. The dashboard and checkout demo use
+`AbortSignal.timeout()` (supported in Chrome 103+, Firefox 100+, Safari
+16+, all mid-2022 or later) — safe for any reasonably current browser by
+2026, and no other modern-only JS features (optional chaining, nullish
+coalescing) are used, which reduces the risk further. But this is
+reasoned confidence, not verified confidence — nobody has actually
+clicked through this in Firefox or Edge. Worth doing before a live demo
+if time allows.
+
 ## 5. Fresh-clone verification
 
 Before considering this submission-ready, the actual public GitHub repo
