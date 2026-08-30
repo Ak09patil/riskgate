@@ -125,7 +125,7 @@ python3 src/cost_sensitivity.py   # threshold tradeoff table at illustrative sca
   outcomes (see "what broke" below) rather than just assuming it does.
   See SPEC.md for the full reasoning.
 
-## What broke, and what we fixed (kept honest, on purpose)
+## What broke, and what we fixed 
 
 - Initial fraud data generation had too much noise relative to signal —
   model AUC was 0.585 (barely above random). Fixed by tuning the
