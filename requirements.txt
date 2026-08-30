@@ -5,3 +5,4 @@ joblib
 flask
 flask-cors
 anthropic
+pytest

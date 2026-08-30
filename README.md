@@ -1,5 +1,7 @@
 # RiskGate
 
+[![Tests](https://github.com/Ak09patil/riskgate/actions/workflows/tests.yml/badge.svg)](https://github.com/Ak09patil/riskgate/actions/workflows/tests.yml)
+
 A risk layer for AI-agent-initiated transactions. See `docs/SPEC.md` for
 the full problem framing and design reasoning.
 
@@ -97,6 +99,8 @@ python3 src/baseline_comparison.py # proves the model beats a naive rule (F2: 0.
 #   mkdir -p /tmp/realdata && curl -o /tmp/realdata/creditcard.csv \
 #     https://raw.githubusercontent.com/nsethi31/Kaggle-Data-Credit-Card-Fraud-Detection/master/creditcard.csv
 python3 src/real_data_validation.py # validates our methodology on real fraud data (AUC 0.972)
+python3 src/calibration_check.py    # checks if probabilities are trustworthy, fixes if not
+python3 src/fairness_check.py       # checks for geographic over-flagging bias
 python3 src/pattern_narrative.py    # standalone demo of the batch pattern-detection + narrative
 python3 src/feedback_loop.py        # standalone demo of the feedback/retrain mechanism
 python3 src/drift_test.py         # tests the model against a shifted distribution
@@ -232,6 +236,20 @@ python3 src/cost_sensitivity.py   # threshold tradeoff table at illustrative sca
   double-click, which would silently record the same outcome twice and
   skew the feedback-accuracy count — fixed with the same disable-while-
   pending pattern already used elsewhere in the dashboard.
+- `HOLD_CONFIRM_WITH_HUMAN` and `HOLD_LIKELY_MISMATCH` both used to
+  finalize the checkout order regardless, then explain the decision
+  *after* the fact — which defeats the entire point of those two
+  outcomes (they exist specifically so a human gets a real say before
+  the order goes through). Fixed by adding an actual confirmation gate
+  in `demo/checkout.html`: those two decisions now pause and ask before
+  finalizing, while `HOLD_FRAUD_REVIEW` deliberately stays a hold the
+  customer *can't* click through — only an analyst resolves a fraud
+  flag, which is the real, meaningful difference between "held pending
+  the customer" and "held pending review." Restructuring this also
+  introduced (and we caught, via the same syntax check that's caught
+  every dashboard JS bug so far) a mismatched function-closing bracket
+  from converting an anonymous event-listener callback into a named
+  function.
 - On some machines (different numpy/BLAS builds than our dev environment
   — confirmed on an ARM Mac using Apple's Accelerate framework), training
   produced `RuntimeWarning: overflow encountered in matmul` during
@@ -300,14 +318,6 @@ should compose with, not duplicate.
 
 ## Known constraints we thought about and didn't solve
 
-- **Calibration**: we report probabilities (e.g. "fraud-risk 0.73") but never
-  verified they're calibrated — that a 0.7 output actually corresponds to a
-  ~70% real fraud rate among similarly-scored transactions. Uncalibrated
-  probabilities are a known gap between a working demo and something a real
-  risk team could trust numerically, not just directionally. We didn't have
-  time to build this properly (Platt scaling or isotonic regression against
-  a genuinely held-out calibration set), and doing it badly would be worse
-  than naming it plainly as unverified.
 - **Revenue tension**: every held transaction is lost revenue for Razorpay
   too, not just risk avoided for the merchant. `HOLD_CONFIRM_WITH_HUMAN`
   exists as a separate outcome from an outright block specifically to
@@ -338,6 +348,38 @@ trained model scores F2 = 0.694 on the identical test set. This is the
 comparison that justifies using a trained model instead of a rule a risk
 analyst could write and audit by hand in five minutes — without it, an AUC
 number has no real reference point.
+
+## Are the model's probabilities actually calibrated?
+
+We used to report "no" here honestly and leave it unverified. We went
+back and actually checked. `src/calibration_check.py` bins the fraud
+model's predictions and compares the mean predicted probability in each
+bin against the real fraud rate among those transactions. Result: the
+original model was **overconfident** — transactions it scored around
+"0.5–0.6" were only actually fraud 34.1% of the time, not 50-60%. After
+fitting a calibrated version (Platt/sigmoid scaling), that gap shrank
+from a 0.179 average mismatch to 0.070, and the Brier score (lower is
+better) improved from 0.2035 to 0.1764. We saved the calibrated version
+as a separate artifact (`models/fraud_model_calibrated.pkl`) rather than
+silently swapping it into production — promoting a model change needs
+the same scrutiny as any other change, not an automatic swap because a
+number improved.
+
+## Does the model treat every pincode fairly?
+
+We don't have real demographic attributes in this data, and shouldn't
+manufacture them — but geography (pincode) is a legitimate fairness
+dimension we do have, and a real risk: if the model over-relies on a
+pincode's historical fraud rate, honest customers in a flagged area can
+get penalized well beyond their own individual risk. `src/fairness_check.py`
+checks this directly: for each pincode, is the false-positive rate among
+genuinely honest customers proportional to that area's real fraud rate?
+Result, honestly: spread across all pincodes is modest on average (mean
+ratio 0.99, std 0.67), but one real outlier — pincode 50003 — flags
+honest customers at **2.8x** the rate its actual fraud rate would
+justify. That's a real finding, not smoothed over: a production
+deployment would want to cap how much weight any single area's history
+can carry for an individual customer's score.
 
 ## Does the methodology hold up on real data, not just our synthetic data?
 

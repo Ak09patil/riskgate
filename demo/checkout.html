@@ -45,6 +45,15 @@
   .chat-bubble.user {
     background: var(--accent); color: white; border-radius: 14px 14px 4px 14px; margin-left: auto;
   }
+  .explanation-card {
+    border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+    margin-bottom: 16px; font-size: 12.5px; line-height: 1.55;
+  }
+  .explanation-card.approved { background: var(--go-soft); border-color: var(--go); color: #1a6b3f; }
+  .explanation-card.held { background: #fff7e8; border-color: #e8b854; color: #8a6414; }
+  .explanation-card .why-title { font-weight: 700; margin-bottom: 4px; display: block; }
+  .gate-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+  .gate-actions .btn.primary { background: var(--accent); }
   .typing { display: inline-flex; gap: 4px; padding: 12px 15px; }
   .typing span {
     width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: bounce 1.2s infinite;
@@ -154,6 +163,26 @@
       <button class="btn primary" id="confirm-btn">Confirm purchase</button>
     </div>
 
+    <div class="stage" id="stage-gate">
+      <div class="chat-bubble" id="gate-message"></div>
+      <div class="gate-actions">
+        <button class="btn primary" id="gate-proceed-btn">Go ahead anyway</button>
+        <button class="btn ghost" id="gate-cancel-btn">Cancel this order</button>
+      </div>
+    </div>
+
+    <div class="stage" id="stage-held">
+      <div class="chat-bubble" id="held-message"></div>
+      <a class="btn primary riskgate-link" href="../dashboard/index.html" style="text-decoration:none; text-align:center; display:block;">See what RiskGate did ▸</a>
+      <a class="btn ghost" href="landing.html" style="text-decoration:none; text-align:center; display:block;">Restart demo</a>
+    </div>
+
+    <div class="stage" id="stage-cancelled">
+      <div class="chat-bubble">Order cancelled — good call double-checking.</div>
+      <a class="btn primary riskgate-link" href="../dashboard/index.html" style="text-decoration:none; text-align:center; display:block;">See what RiskGate did ▸</a>
+      <a class="btn ghost" href="landing.html" style="text-decoration:none; text-align:center; display:block;">Restart demo</a>
+    </div>
+
     <div class="stage" id="stage-processing">
       <div class="processing">
         <div class="spinner"></div>
@@ -162,8 +191,9 @@
     </div>
 
     <div class="stage" id="stage-done">
-      <div class="chat-bubble">Order placed. Here's what happened behind the scenes —</div>
-      <a class="btn primary" href="../dashboard/index.html" id="see-riskgate" style="text-decoration:none; text-align:center; display:block;">See what RiskGate did ▸</a>
+      <div class="chat-bubble" id="done-message">Order placed.</div>
+      <div class="explanation-card" id="explanation-card" style="display:none;"></div>
+      <a class="btn primary riskgate-link" href="../dashboard/index.html" style="text-decoration:none; text-align:center; display:block;">See what RiskGate did ▸</a>
       <a class="btn ghost" href="landing.html" style="text-decoration:none; text-align:center; display:block;">Restart demo</a>
     </div>
 
@@ -244,17 +274,83 @@ document.getElementById('submit-intent-btn').addEventListener('click', async () 
 });
 
 document.getElementById('confirm-btn').addEventListener('click', async () => {
+  await sleep(500); // brief pause so the flow doesn't feel instant/fake
+  routeByDecision();
+});
+
+// Routes to genuinely different behavior per decision — not the same
+// "order placed" flow with a label attached afterward. This is the fix
+// for a real gap: HOLD_CONFIRM_WITH_HUMAN and HOLD_LIKELY_MISMATCH both
+// used to just finalize the order and explain it after the fact. Now
+// they actually pause and ask, BEFORE the order goes through — and
+// HOLD_FRAUD_REVIEW is deliberately different: the customer can't
+// self-confirm past a fraud hold, only an analyst can.
+// Sets the "See what RiskGate did" link on EVERY end-state screen
+// (held, cancelled, done) to carry the actual scored result forward —
+// not just the finalized-order path. Previously this only happened
+// inside finalizeOrder(), so a fraud-hold or a cancelled order had no
+// way to see the real decision that led there.
+function setRiskGateLinks() {
+  if (!liveResult) return;
+  const encoded = encodeURIComponent(JSON.stringify(liveResult));
+  document.querySelectorAll('.riskgate-link').forEach(link => {
+    link.href = `../dashboard/index.html?result=${encoded}`;
+  });
+}
+
+function routeByDecision() {
+  const decision = liveResult ? liveResult.decision : 'AUTO_APPROVE';
+  const gateMessage = document.getElementById('gate-message');
+  const heldMessage = document.getElementById('held-message');
+  setRiskGateLinks();
+
+  if (decision === 'AUTO_APPROVE') {
+    finalizeOrder();
+  } else if (decision === 'HOLD_CONFIRM_WITH_HUMAN') {
+    gateMessage.innerHTML = "This order went a bit outside your usual budget for this category — but it matches things you've bought before. Want to go ahead anyway?";
+    showStage('stage-gate');
+  } else if (decision === 'HOLD_LIKELY_MISMATCH') {
+    gateMessage.innerHTML = "Heads up — this doesn't quite match what you originally asked for (budget, size, or category). We'd recommend double-checking before this goes through.";
+    showStage('stage-gate');
+  } else if (decision === 'HOLD_FRAUD_REVIEW') {
+    // deliberately NOT a gate the customer can click through — a fraud
+    // hold needs actual analyst review, not a customer self-confirm
+    heldMessage.innerHTML = "This order needs a quick safety check before it can go through — a routine step, not an accusation. It's been sent for review and you'll hear back shortly. No action needed from you right now.";
+    showStage('stage-held');
+  } else {
+    finalizeOrder();
+  }
+}
+
+document.getElementById('gate-proceed-btn').addEventListener('click', finalizeOrder);
+document.getElementById('gate-cancel-btn').addEventListener('click', () => {
+  showStage('stage-cancelled');
+});
+
+async function finalizeOrder() {
   showStage('stage-processing');
   await sleep(1600);
   showStage('stage-done');
-  // carry the actual scored result forward via URL, so the dashboard
-  // shows THIS specific transaction, not a fresh random one
-  const link = document.getElementById('see-riskgate');
+
+  // Consumer-facing explanation — deliberately SOFT and plain-language,
+  // not the full numeric detail an analyst sees in the dashboard. This
+  // is intentional: exact thresholds/scores would both confuse a
+  // customer and teach a bad actor exactly what to fake next time.
+  const doneMessage = document.getElementById('done-message');
+  const card = document.getElementById('explanation-card');
   if (liveResult) {
-    const encoded = encodeURIComponent(JSON.stringify(liveResult));
-    link.href = `../dashboard/index.html?result=${encoded}`;
+    const decision = liveResult.decision;
+    if (decision === 'AUTO_APPROVE') {
+      doneMessage.textContent = 'Order placed — approved instantly.';
+      card.style.display = 'none';
+    } else {
+      doneMessage.textContent = 'Order placed — after your confirmation.';
+      card.style.display = 'block';
+      card.className = 'explanation-card held';
+      card.innerHTML = '<span class="why-title">Why we checked first</span>This order deviated from what you originally asked your agent for, so RiskGate held it for your confirmation rather than auto-approving or auto-blocking it.';
+    }
   }
-});
+}
 </script>
 </body>
 </html>
