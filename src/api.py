@@ -43,6 +43,14 @@ def score():
     if missing:
         return jsonify({"error": f"missing required fields: {missing}"}), 400
     try:
+        order_price = float(txn["order_price"])
+        intent_max_price = float(txn["intent_max_price"])
+    except (TypeError, ValueError):
+        return jsonify({"error": "order_price and intent_max_price must be numbers"}), 400
+    if order_price <= 0 or intent_max_price <= 0:
+        return jsonify({"error": "order_price and intent_max_price must be positive — found "
+                                  f"order_price={order_price}, intent_max_price={intent_max_price}"}), 400
+    try:
         result = score_transaction(txn)
     except Exception as e:
         return jsonify({"error": f"scoring failed: {e}"}), 400
@@ -99,6 +107,8 @@ def full_loop():
             max_price = float(body.get("max_price", random.uniform(1000, 7000)))
         except (TypeError, ValueError):
             return jsonify({"error": "max_price must be a number"}), 400
+        if max_price <= 0:
+            return jsonify({"error": f"max_price must be positive, got {max_price}"}), 400
         intent = {
             "category": body.get("category", random.choice(_CATEGORIES)),
             "max_price": max_price,

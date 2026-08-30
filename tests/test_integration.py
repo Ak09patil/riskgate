@@ -115,6 +115,41 @@ class TestAPIIntegration:
         assert resp.status_code == 400
         assert "error" in resp.get_json()
 
+    def test_score_endpoint_rejects_negative_price(self, api_client):
+        """Regression test for a real bug found in proactive edge-case
+        testing — negative and zero prices were silently accepted and
+        scored as if valid, including being auto-approved."""
+        txn = {
+            "order_price": -500, "order_category": "footwear",
+            "order_key_attribute": "attr_2", "payment_mode": "COD",
+            "pincode": "500011", "agent_age_days": 200,
+            "intent_category": "footwear", "intent_max_price": 3000,
+            "intent_key_attribute": "attr_2",
+            "user_historical_category": "footwear",
+            "user_past_over_budget_kept_rate": 0.5,
+            "device_ip_consistency": 1, "user_account_age_days": 400,
+        }
+        resp = api_client.post("/score", json=txn)
+        assert resp.status_code == 400
+
+    def test_score_endpoint_rejects_zero_price(self, api_client):
+        txn = {
+            "order_price": 0, "order_category": "footwear",
+            "order_key_attribute": "attr_2", "payment_mode": "COD",
+            "pincode": "500011", "agent_age_days": 200,
+            "intent_category": "footwear", "intent_max_price": 3000,
+            "intent_key_attribute": "attr_2",
+            "user_historical_category": "footwear",
+            "user_past_over_budget_kept_rate": 0.5,
+            "device_ip_consistency": 1, "user_account_age_days": 400,
+        }
+        resp = api_client.post("/score", json=txn)
+        assert resp.status_code == 400
+
+    def test_full_loop_rejects_negative_max_price(self, api_client):
+        resp = api_client.post("/full_loop", json={"max_price": -100})
+        assert resp.status_code == 400
+
     def test_full_loop_rejects_non_numeric_max_price(self, api_client):
         """Regression test for the second real QA bug — max_price comes
         directly from a browser text input in the checkout demo."""
@@ -129,6 +164,52 @@ class TestAPIIntegration:
 # --- Model quality regression guard — the one that would have caught a
 # FUTURE change silently degrading the model, which none of the printed-
 # output rigor scripts would stop from merging ---
+
+# --- Concurrency: the most serious bug found in this session's edge-case
+# hunt — concurrent writes to the outcomes log silently lost data while
+# reporting success to every caller ---
+
+class TestConcurrentOutcomeRecording:
+    def test_concurrent_writes_do_not_lose_data(self, api_client, tmp_path, monkeypatch):
+        """Regression test for a real, serious bug: 5 simultaneous
+        POST /record_outcome calls used to result in only 1 row surviving
+        in outcomes_log.csv (pandas' to_csv(mode='a') has a race window
+        between checking if the file exists and appending to it). Fixed
+        with a real file lock (fcntl). This test simulates concurrency
+        with threads hitting the same Flask test client.
+
+        Uses 30 threads (not 10) — a race condition can pass by luck on
+        a small run; this failed on a real machine (macOS) even after
+        an initial fix attempt, so this test is deliberately aggressive
+        rather than just enough to pass once."""
+        import threading
+        import feedback_loop
+        test_log = tmp_path / "outcomes_log.csv"
+        monkeypatch.setattr(feedback_loop, "OUTCOMES_LOG", str(test_log))
+
+        N = 30
+        results = []
+        def make_request(i):
+            resp = api_client.post("/record_outcome", json={
+                "order_id": f"txn_{i:06d}", "confirmed_fraud": True,
+            })
+            results.append(resp.status_code)
+
+        threads = [threading.Thread(target=make_request, args=(i,)) for i in range(N)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert all(code == 200 for code in results)
+        with open(test_log) as f:
+            lines = f.readlines()
+        header_count = sum(1 for line in lines if line.startswith("order_id,"))
+        assert header_count == 1, f"expected exactly 1 header row, found {header_count} — two writers both thought the file was empty at once"
+        # header + N data rows — every write must survive, not just
+        # every write must REPORT success
+        assert len(lines) == N + 1, f"expected {N + 1} lines (header + {N} rows), got {len(lines)} — data was lost"
+
 
 class TestModelQualityFloor:
     def test_fraud_model_auc_stays_above_a_reasonable_floor(self):

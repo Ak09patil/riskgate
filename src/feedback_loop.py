@@ -44,17 +44,40 @@ def record_outcome(order_id: str, confirmed_fraud: bool, analyst_note: str = "")
     what a fraud analyst clicking "Approve anyway" or "Reject" in the
     dashboard's Fraud queue would actually be doing in a real deployment
     — the button already exists in the UI; this is what it would call.
+
+    Uses a real file lock (fcntl), not just pandas' to_csv(mode="a").
+    Found via testing: concurrent writes (e.g. two analysts clicking
+    close together) could silently lose data — pandas checking "does the
+    file exist" then appending has a race window where two writers can
+    interleave and clobber each other, even though both got a success
+    response. The lock makes each write atomic relative to the others.
     """
-    entry = pd.DataFrame([{
-        "order_id": order_id,
-        "confirmed_fraud": confirmed_fraud,
-        "analyst_note": analyst_note,
-        "recorded_at": datetime.now(timezone.utc).isoformat(),
-    }])
-    if os.path.exists(OUTCOMES_LOG):
-        entry.to_csv(OUTCOMES_LOG, mode="a", header=False, index=False)
-    else:
-        entry.to_csv(OUTCOMES_LOG, index=False)
+    import fcntl
+    import csv
+
+    with open(OUTCOMES_LOG, "a", newline="") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            # check emptiness AFTER acquiring the lock, not before — checking
+            # Check emptiness via the kernel's actual file size (fstat),
+            # not f.tell() — found via real testing on a second machine
+            # (macOS) that f.tell() right after opening in append mode
+            # isn't reliably 0-vs-nonzero across platforms, which let two
+            # threads both think the file was empty and both write a
+            # header row. fstat asks the OS directly, which is atomic
+            # and reliable under the lock we're already holding.
+            is_empty = os.fstat(f.fileno()).st_size == 0
+            writer = csv.writer(f)
+            if is_empty:
+                writer.writerow(["order_id", "confirmed_fraud", "analyst_note", "recorded_at"])
+            writer.writerow([
+                order_id, confirmed_fraud, analyst_note,
+                datetime.now(timezone.utc).isoformat(),
+            ])
+            f.flush()
+            os.fsync(f.fileno())
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 def evaluate_against_feedback() -> dict:

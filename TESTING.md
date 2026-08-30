@@ -85,6 +85,39 @@ means the testing wasn't looking hard enough.
 | Fraud queue's Approve/Reject buttons had no double-click protection | Reviewed for race conditions during the same QA pass | Added the same disable-while-pending pattern used elsewhere |
 | A broken JS comment (missing `//`) silently killed the entire dashboard's interactivity | A user reported clicking a button did nothing; found via the browser console, not by reading the code | Fixed the comment; added a real `node --check` syntax test to the verification process, replacing a weaker regex-based check |
 | Restructuring the checkout confirmation flow left a mismatched function-closing bracket | Caught immediately by the same `node --check` syntax test, before it ever reached a user | Fixed the bracket mismatch |
+| **Concurrent writes to the outcomes log silently lost data** — 5 simultaneous requests all reported success, but only 1 row survived | A deliberate proactive concurrency test (not triggered by any user report) — sent 5 real simultaneous requests and checked the actual file contents, not just the API's response codes | Rewrote the write path with a real file lock (`fcntl`) — but the FIRST fix attempt was incomplete: checking emptiness with `f.tell()` passed 20/20 times in the sandbox but failed on a real Mac with a duplicate header row, because `f.tell()` right after opening in append mode isn't reliably 0-vs-nonzero across platforms. Found only because the automated test was actually run on a second, different machine, not trusted from a clean sandbox run. Fixed properly with `os.fstat().st_size`, a kernel-level check, not a buffered-stream one — verified 15/15 at a more aggressive 30 concurrent threads. |
+| `/score` and `/full_loop` silently accepted negative or zero prices, scoring and even auto-approving them | A deliberate proactive adversarial input test, not a user report | Added explicit positive-value validation with clear error responses on both endpoints |
+
+## 6. Proactive edge-case audit (not triggered by a bug report)
+
+Before this pass, every bug above was found reactively — a user hit
+something, or a specific hypothesis was tested. This pass was
+different: deliberately trying to break the live, running system with
+adversarial input, without a specific report to chase.
+
+**Tested and found genuinely safe (not just assumed):**
+- XSS-style injection (`<script>` tags) in the category field — safely
+  rejected as "no catalog match," never reflected into any page
+- Astronomically large price (₹999 billion) — correctly caught by the
+  fraud model, held for review, not naively accepted
+- An unseen pincode (never in the training data) — falls back to the
+  global fraud rate cleanly, no crash
+- `pattern_narrative.py` called with zero flagged transactions — returns
+  a clean "no clusters detected" result, no crash on empty data
+- Every place a live-typed user input reaches the DOM uses
+  `.textContent` (auto-escaping), never `.innerHTML` with untrusted
+  data — checked directly across both `dashboard/index.html` and
+  `demo/checkout.html`, not assumed
+
+**Tested and found genuinely broken (see table above for both):**
+- Concurrent writes to the outcomes log
+- Negative/zero price validation
+
+This is deliberately a different kind of testing than everything
+above it — proactive rather than reactive, adversarial rather than
+representative. Both real findings from this pass now have their own
+automated regression tests (`tests/test_integration.py`), so neither
+can silently reappear.
 
 ## 5. Fresh-clone verification
 
