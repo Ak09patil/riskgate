@@ -5,6 +5,15 @@
 A risk layer for AI-agent-initiated transactions. See `docs/SPEC.md` for
 the full problem framing and design reasoning.
 
+**A fair thing to be skeptical of, addressed upfront:** the numbers below
+come from synthetic data we generated ourselves — a reasonable "of course
+your model finds the pattern you put there" reaction. We tested that
+directly, not just argued around it: `src/real_data_validation.py`
+validates the same modeling methodology against 284,807 **real** credit
+card transactions with real fraud labels (AUC 0.972). See "Does the
+methodology hold up on real data" further down for the honest full
+picture, including where a more complex model could beat that number.
+
 ## How the pieces actually connect (this matters)
 
 This is one system, not separate scripts:
