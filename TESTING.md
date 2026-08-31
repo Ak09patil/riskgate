@@ -18,7 +18,7 @@ neutral preference-fit, not penalized) as a regression test, intent-
 match correctly detects category mismatches, the shopping agent returns
 real catalog items and respects budget, and scoring is deterministic.
 
-**`tests/test_integration.py`** — 8 tests on components working
+**`tests/test_integration.py`** — 18 tests on components working
 together, not in isolation:
 - The exact seam between the shopping agent and RiskGate (agent's
   output must be directly consumable by score_transaction())
@@ -29,6 +29,15 @@ together, not in isolation:
   including regression tests for the two real crash bugs found during
   the final QA pass (`/score` on empty input, `/full_loop` on
   non-numeric `max_price`)
+- Concurrent-write safety on the outcomes log (10 real threads, no
+  data loss, no duplicate header rows)
+- The abuse-ring sentinel's recall floor and its false-positive rate
+  on clean data
+- The fraud-spike detector's precision/recall floor
+- A regression guard that logistic regression stays "not measurably
+  worse" than XGBoost — see model_complexity_comparison.py; if a
+  future change made XGBoost genuinely better, this is designed to
+  surface that as a real tradeoff to revisit, not stay silently stale
 - A model-quality regression floor: asserts the fraud model's AUC
   doesn't silently degrade below 0.65 (our real result is ~0.73) if a
   future change breaks something the printed-output rigor scripts alone
@@ -36,7 +45,7 @@ together, not in isolation:
 - A regression guard that the model must keep beating the naive
   baseline rule, not just print that it currently does
 
-21 tests total, run with: `pytest tests/ -v`
+31 tests total, run with: `pytest tests/ -v`
 
 ## 2. Manual verification scripts (rigor checks, not pass/fail)
 
@@ -179,3 +188,30 @@ README's primary documented flow already does, sidestepping this
 naturally). Fixed by pinning `scikit-learn>=1.9.0` in
 `requirements.txt`, so any fresh install matches or exceeds the version
 the committed artifacts were trained with.
+
+## 8. A real, common cross-platform dependency failure — found on real hardware, not anticipated
+
+`src/model_complexity_comparison.py` (the honest XGBoost-vs-logistic-
+regression test) was written with error handling for exactly one
+failure mode: xgboost not being installed (`ImportError`). Real testing
+on a Mac found a second, different, and very common failure mode: the
+xgboost *Python package* installs fine via pip, but its compiled
+native library depends on OpenMP (`libomp`), which macOS doesn't ship
+by default — raising `XGBoostError`, not `ImportError`. The original
+`except ImportError` clause didn't catch it, so the script crashed
+instead of degrading gracefully, and the automated test around it
+(which pre-checked "is the package importable" via `importlib.util.
+find_spec`) didn't catch it either, since the package genuinely *is*
+importable as a package — it just fails when its compiled internals
+try to load.
+
+Fixed by broadening the exception handling to catch any exception
+during the xgboost import (not just `ImportError`), and by changing
+the test to call the real function and check its actual return value,
+rather than pre-checking with a shallower "is this importable" test.
+Verified the corrected exception-handling logic directly (a fresh
+`Exception` subclass, matching `XGBoostError`'s actual type
+relationship, is caught exactly the same way `ImportError` is) — full
+end-to-end confirmation still needs a real rerun on the Mac that found
+this, not just sandbox logic verification, following the same
+discipline every other cross-machine fix in this project has used.

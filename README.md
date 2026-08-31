@@ -114,6 +114,7 @@ python3 src/fairness_check.py       # checks for geographic over-flagging bias
 python3 src/pattern_narrative.py    # standalone demo of the batch pattern-detection + narrative
 python3 src/ring_detector.py        # abuse-ring sentinel, validated against injected ground truth
 python3 src/spike_detector.py       # fraud-spike detector, validated against injected ground truth
+python3 src/model_complexity_comparison.py  # tests "why not XGBoost" directly, not just argued
 python3 src/feedback_loop.py        # standalone demo of the feedback/retrain mechanism
 python3 src/drift_test.py         # tests the model against a shifted distribution
 python3 src/cost_sensitivity.py   # threshold tradeoff table at illustrative scale

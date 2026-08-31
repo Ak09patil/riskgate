@@ -265,6 +265,44 @@ class TestFraudSpikeDetector:
         assert metrics["precision"] >= 0.3, f"Spike detection precision ({metrics['precision']}) dropped below regression floor"
 
 
+class TestModelComplexityJustification:
+    def test_logistic_regression_is_not_measurably_worse_than_xgboost(self):
+        """Regression guard for a real, tested claim (see
+        model_complexity_comparison.py): a more complex model does NOT
+        measurably beat our logistic regression on this data. If a
+        future data/feature change made that stop being true, that
+        would be a real signal the interpretability tradeoff needs
+        revisiting — this test exists to surface that, not to lock in
+        a specific outcome forever.
+
+        NOTE: skips if xgboost genuinely can't run — either not
+        installed, OR installed but its native library fails to load
+        (a real, common macOS issue: xgboost needs OpenMP/libomp,
+        which isn't present by default — this raises XGBoostError, not
+        ImportError, so checking only "is the package importable" via
+        find_spec is NOT sufficient, confirmed by this exact failure
+        happening on real hardware during testing). Calling
+        evaluate_xgboost() directly and checking its actual return
+        value is the only reliable way to know it really ran."""
+        from model_complexity_comparison import evaluate_logistic_regression, evaluate_xgboost
+        lr_auc, lr_f2 = evaluate_logistic_regression()
+        xgb_auc, xgb_f2, _, _ = evaluate_xgboost()
+
+        if xgb_auc is None:
+            pytest.skip("xgboost could not run in this environment (not installed, or "
+                        "native library failed to load — e.g. missing OpenMP/libomp on macOS)")
+
+        # "not measurably worse" — allow XGBoost some headroom before
+        # calling this a real problem, since exact numbers wobble a
+        # little run to run even with a fixed random_state across
+        # library versions
+        assert xgb_auc <= lr_auc + 0.03, (
+            f"XGBoost (AUC {xgb_auc:.3f}) now measurably beats logistic "
+            f"regression (AUC {lr_auc:.3f}) — the interpretability "
+            f"tradeoff should be revisited, not assumed to still hold."
+        )
+
+
 class TestModelQualityFloor:
     def test_fraud_model_auc_stays_above_a_reasonable_floor(self):
         """Not a strict re-check of the exact reported number (that's
