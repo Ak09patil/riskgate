@@ -340,6 +340,14 @@ should compose with, not duplicate.
 
 ## Known constraints we thought about and didn't solve
 
+- **No real user or merchant validation**: every UX decision here — the
+  soft consumer-facing explanations, the specific wording of confirmation
+  gates, whether "propose + ask" is actually the right response to a
+  borderline case — was reasoned from first principles and tested against
+  our own judgment, never against an actual person. This is inherent to
+  a solo buildathon timeline, not something more build time would have
+  fixed: real UX validation needs real users, which needs time this
+  format doesn't have. Named plainly rather than implied away.
 - **Revenue tension**: every held transaction is lost revenue for Razorpay
   too, not just risk avoided for the merchant. `HOLD_CONFIRM_WITH_HUMAN`
   exists as a separate outcome from an outright block specifically to
