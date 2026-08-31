@@ -165,3 +165,17 @@ python src/train_fraud_model.py
 python src/train_intent_model.py
 pytest tests/ -v
 ```
+
+**A real finding from this exact check, done again after the ring/spike
+detector additions:** the committed `models/fraud_model.pkl` was trained
+with scikit-learn 1.9.0, but a fresh install in a different environment
+pulled 1.8.0 by default (`scikit-learn` was unpinned in
+`requirements.txt`), producing an `InconsistentVersionWarning` when
+loading the committed model directly. Confirmed harmless in this case
+(predictions matched exactly), but the warning's own text says results
+*could* be affected — a real risk for anyone who skips straight to
+using the committed models instead of retraining locally (which the
+README's primary documented flow already does, sidestepping this
+naturally). Fixed by pinning `scikit-learn>=1.9.0` in
+`requirements.txt`, so any fresh install matches or exceeds the version
+the committed artifacts were trained with.
