@@ -12,6 +12,15 @@ import os
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+# Same cosmetic-but-worth-fixing filter used everywhere else in this
+# project that touches sklearn — this specific class of RuntimeWarning
+# (quasi-complete-separation overflow) is harmless and platform-
+# dependent, but a clean CI log matters just as much as a clean
+# terminal, and this file never got the same filter the other scripts
+# already have.
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="sklearn")
+
 import pytest
 import pandas as pd
 import joblib
@@ -209,6 +218,51 @@ class TestConcurrentOutcomeRecording:
         # header + N data rows — every write must survive, not just
         # every write must REPORT success
         assert len(lines) == N + 1, f"expected {N + 1} lines (header + {N} rows), got {len(lines)} — data was lost"
+
+
+# --- Two new loss classes: abuse-ring sentinel (relational/graph
+# detection) and fraud-spike detector (time-series anomaly detection).
+# Both are validated against real injected ground truth in
+# generate_data.py, the same rigor standard as fraud-risk/intent-match —
+# these tests guard against a future change silently degrading either. ---
+
+class TestAbuseRingSentinel:
+    def test_detects_injected_rings_above_a_reasonable_recall_floor(self):
+        """Regression guard, not a re-check of the exact reported number
+        (real result was recall=1.0, precision=0.923). Floor set well
+        below that so this only fires on genuine regression."""
+        import pandas as pd
+        from ring_detector import detect_rings, validate_against_ground_truth
+        df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
+        result_df = detect_rings(df)
+        metrics = validate_against_ground_truth(result_df)
+        assert metrics["recall"] >= 0.7, f"Ring detection recall ({metrics['recall']}) dropped below regression floor"
+        assert metrics["precision"] >= 0.5, f"Ring detection precision ({metrics['precision']}) dropped below regression floor"
+
+    def test_false_positive_rate_on_clean_data_stays_low(self):
+        """The stronger honesty check: on data with ZERO injected rings,
+        does the detector still stay quiet? Real result was 0.07% (3 of
+        4000). Floor set generously above that."""
+        import pandas as pd
+        from ring_detector import detect_rings
+        df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
+        clean_only = df[df["true_ring_id"] == -1].copy()
+        result = detect_rings(clean_only)
+        fp_rate = (result["detected_ring_id"] >= 0).mean()
+        assert fp_rate < 0.02, f"False positive rate on clean data ({fp_rate:.3f}) is too high — detector is over-triggering"
+
+
+class TestFraudSpikeDetector:
+    def test_detects_injected_spikes_above_a_reasonable_floor(self):
+        """Regression guard for the real result (precision=0.545,
+        recall=0.545) — floor set below that."""
+        import pandas as pd
+        from spike_detector import detect_spikes, validate_against_ground_truth
+        df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
+        bucket_stats = detect_spikes(df)
+        metrics = validate_against_ground_truth(bucket_stats)
+        assert metrics["recall"] >= 0.3, f"Spike detection recall ({metrics['recall']}) dropped below regression floor"
+        assert metrics["precision"] >= 0.3, f"Spike detection precision ({metrics['precision']}) dropped below regression floor"
 
 
 class TestModelQualityFloor:

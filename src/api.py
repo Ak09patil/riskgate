@@ -186,6 +186,64 @@ def fraud_batch_narrative():
     return jsonify(result)
 
 
+@app.route("/detect_rings", methods=["GET"])
+def detect_rings_endpoint():
+    """
+    Abuse-ring sentinel — a genuinely different problem shape from the
+    two per-transaction scores (relational/graph detection, not
+    classification). See ring_detector.py for the full reasoning and
+    docs/ARCHITECTURE.md for why this specific linkage rule was chosen.
+    """
+    from ring_detector import detect_rings, validate_against_ground_truth
+    df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
+    result_df = detect_rings(df)
+    detected = result_df[result_df["detected_ring_id"] >= 0]
+    rings = []
+    for ring_id, group in detected.groupby("detected_ring_id"):
+        rings.append({
+            "ring_id": int(ring_id),
+            "size": len(group),
+            "pincode": str(group["pincode"].iloc[0]),
+            "order_ids": group["order_id"].tolist(),
+        })
+    response = {"rings_detected": len(rings), "rings": rings}
+    # include validation metrics only if ground truth is present (real
+    # deployments wouldn't have this column — this is a demo/validation
+    # convenience, not something the live product depends on)
+    if "true_ring_id" in df.columns:
+        response["validation_against_injected_ground_truth"] = validate_against_ground_truth(result_df)
+    return jsonify(response)
+
+
+@app.route("/detect_spikes", methods=["GET"])
+def detect_spikes_endpoint():
+    """
+    Fraud-spike detector — time-series anomaly detection over
+    aggregate transaction volume, a third distinct problem shape from
+    per-transaction scoring and relational ring detection. See
+    spike_detector.py for the full reasoning.
+    """
+    from spike_detector import detect_spikes, validate_against_ground_truth
+    df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
+    bucket_stats = detect_spikes(df)
+    flagged = bucket_stats[bucket_stats["detected_spike"]]
+    response = {
+        "buckets_flagged": len(flagged),
+        "flagged_windows": [
+            {
+                "bucket_start": str(row["_bucket"]),
+                "transaction_count": int(row["count"]),
+                "fraud_rate": round(float(row["fraud_rate"]), 3),
+                "z_score": round(float(row["z_score"]), 2),
+            }
+            for _, row in flagged.iterrows()
+        ],
+    }
+    if "true_spike_window" in df.columns:
+        response["validation_against_injected_ground_truth"] = validate_against_ground_truth(bucket_stats)
+    return jsonify(response)
+
+
 @app.route("/record_outcome", methods=["POST"])
 def record_outcome_endpoint():
     """
@@ -219,6 +277,8 @@ if __name__ == "__main__":
     print("  GET  /full_loop              -> shopping agent proposes + RiskGate scores, live")
     print("  POST /score                  -> scores a transaction you send in the body")
     print("  GET  /fraud_batch_narrative   -> pattern narrative for the current fraud-review batch")
+    print("  GET  /detect_rings           -> abuse-ring sentinel (graph-based coordinated-fraud detection)")
+    print("  GET  /detect_spikes          -> fraud-spike detector (time-series volume anomaly detection)")
     print("  POST /record_outcome         -> logs a real confirmed outcome for a held transaction")
     print("  GET  /feedback_status        -> model accuracy vs. real recorded outcomes so far")
     app.run(port=5050, debug=False)

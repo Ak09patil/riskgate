@@ -23,6 +23,33 @@ from datetime import datetime, timedelta
 rng = np.random.default_rng(42)
 
 N = 4000  # total synthetic transactions
+BASE_TIME = datetime(2026, 1, 1)
+TIME_RANGE_MINUTES = 20000  # ~13.9 days — compressed on purpose (see below)
+
+# --- Ground-truth spike windows, injected deliberately so the spike
+# detector (src/spike_detector.py) has something real to be measured
+# against — not just "does it look plausible." Four 3-hour windows,
+# spread across the full time range, each with fraud probability
+# elevated by a known, fixed amount. This is the SAME "cite the reason
+# before seeing the metric" discipline used for the fraud-label weights
+# below — window count/spacing chosen for reasonable test-set coverage,
+# not tuned after seeing detector results.
+#
+# TIME_RANGE_MINUTES was originally ~139 days (200,000 min), matching
+# the original fraud/intent-match generator. With 4000 transactions
+# spread that thin, a signal-strength check (same discipline as the
+# fraud-label check below) found only ~11 transactions landed in any
+# spike window at all — far too sparse to validate detection against.
+# Compressed the time range to ~14 days instead, which is a genuine
+# design change (not tuning after seeing detector RESULTS — this was
+# caught before any detector was even written, from raw density alone).
+SPIKE_WINDOWS = [
+    (BASE_TIME + timedelta(minutes=2500), timedelta(hours=3)),
+    (BASE_TIME + timedelta(minutes=8000), timedelta(hours=3)),
+    (BASE_TIME + timedelta(minutes=12500), timedelta(hours=3)),
+    (BASE_TIME + timedelta(minutes=17500), timedelta(hours=3)),
+]
+SPIKE_FRAUD_BOOST = 0.35  # added to fraud_prob for transactions in a spike window
 
 CATEGORIES = ["footwear", "electronics", "groceries", "flights", "fashion", "home"]
 PINCODE_RETURN_RATE = {  # simulate pincode-level historical return rate
@@ -31,10 +58,19 @@ PINCODE_RETURN_RATE = {  # simulate pincode-level historical return rate
 PINCODES = list(PINCODE_RETURN_RATE.keys())
 
 
+def in_spike_window(ts):
+    for start, duration in SPIKE_WINDOWS:
+        if start <= ts < start + duration:
+            return True
+    return False
+
+
 def gen_transaction(i):
     category = rng.choice(CATEGORIES)
     pincode = rng.choice(PINCODES)
     payment_mode = rng.choice(["COD", "prepaid"], p=[0.55, 0.45])
+    timestamp = BASE_TIME + timedelta(minutes=int(rng.uniform(0, TIME_RANGE_MINUTES)))
+    is_spike = in_spike_window(timestamp)
 
     # --- agent facts ---
     agent_age_days = int(rng.exponential(120))  # newer agents = rarer but exist
@@ -95,6 +131,8 @@ def gen_transaction(i):
     fraud_prob += PINCODE_RETURN_RATE[pincode] * 0.4  # geographic clustering
     if order_price > 5000:
         fraud_prob += 0.10  # value-proportional incentive
+    if is_spike:
+        fraud_prob += SPIKE_FRAUD_BOOST  # deliberate, ground-truth spike window
     is_fraud = int(rng.random() < min(fraud_prob, 0.95))
 
     # --- preference-fit signal (heuristic, not a hard label) ---
@@ -126,7 +164,7 @@ def gen_transaction(i):
         "category": order_category,
         "payment_mode": payment_mode,
         "pincode": pincode,
-        "timestamp": (datetime(2026, 1, 1) + timedelta(minutes=int(rng.uniform(0, 200000)))).isoformat(),
+        "timestamp": timestamp.isoformat(),
         "agent_id": f"agent_{rng.integers(1, 60)}",
         "agent_age_days": agent_age_days,
         "intent_category": intent_category,
@@ -147,16 +185,91 @@ def gen_transaction(i):
         "preference_fit_signal": preference_fit_signal,
         "is_fraud": is_fraud,
         "is_return_or_mismatch": is_return_or_mismatch,
+        "true_spike_window": is_spike,
+        "true_ring_id": -1,  # -1 = not part of an injected ring; set for real below
     }
+
+
+# --- Ground-truth abuse rings, appended AFTER the main N transactions ---
+# (not interleaved with them) so the original 4000 rows' random draws are
+# completely unaffected by this addition — this is deliberate: adding a
+# new capability shouldn't silently change the already-validated fraud/
+# intent-match numbers. Each ring: 3-6 transactions sharing a pincode,
+# all fresh agents (<10 days old), clustered within a tight real time
+# window (20-90 minutes) — the actual signature a coordinated ring
+# leaves, per the reasoning in docs/ARCHITECTURE.md. Deliberately NOT
+# obviously flagged by the per-transaction fraud model (moderate,
+# plausible-looking individual attributes) — the whole point is these
+# are the cases ring-detection adds real value beyond per-transaction
+# scoring, not a redundant restatement of it.
+N_RINGS = 15
+RING_SIZE_RANGE = (3, 6)
+
+
+def gen_ring_transactions(start_index):
+    rows = []
+    idx = start_index
+    for ring_id in range(N_RINGS):
+        ring_size = int(rng.integers(RING_SIZE_RANGE[0], RING_SIZE_RANGE[1] + 1))
+        pincode = rng.choice(PINCODES)
+        category = rng.choice(CATEGORIES)
+        window_start = BASE_TIME + timedelta(minutes=int(rng.uniform(0, TIME_RANGE_MINUTES)))
+        for _ in range(ring_size):
+            intent_max_price = round(rng.uniform(500, 8000), 2)
+            order_price = round(rng.uniform(intent_max_price * 0.7, intent_max_price), 2)
+            key_attr = f"attr_{rng.integers(1, 6)}"
+            ts = window_start + timedelta(minutes=int(rng.uniform(0, 90)))
+            # moderate, plausible-looking attributes on purpose — a
+            # per-transaction fraud model should NOT reliably catch
+            # these individually; the linkage IS the signal
+            device_ip_consistency = int(rng.random() < 0.75)
+            rows.append({
+                "order_id": f"txn_ring_{ring_id:03d}_{idx:06d}",
+                "order_value": order_price,
+                "category": category,
+                "payment_mode": rng.choice(["COD", "prepaid"], p=[0.55, 0.45]),
+                "pincode": pincode,
+                "timestamp": ts.isoformat(),
+                "agent_id": f"agent_ring_{ring_id:03d}_{rng.integers(1, 999)}",
+                "agent_age_days": int(rng.uniform(0, 9)),  # fresh, by design
+                "intent_category": category,
+                "intent_max_price": intent_max_price,
+                "intent_key_attribute": key_attr,
+                "order_category": category,
+                "order_price": order_price,
+                "order_key_attribute": key_attr,
+                "user_id": f"user_ring_{ring_id:03d}_{rng.integers(1, 999)}",
+                "user_historical_avg_order_value": round(rng.uniform(500, 6000), 2),
+                "user_historical_category": category,
+                "user_account_age_days": int(rng.uniform(0, 9)),
+                "device_ip_consistency": device_ip_consistency,
+                "user_past_over_budget_kept_rate": round(rng.uniform(0, 1), 2),
+                "category_match": 1,
+                "price_within_budget": 1,
+                "attribute_match": 1,
+                "preference_fit_signal": 0.5,
+                "is_fraud": int(rng.random() < 0.55),  # elevated but not certain — realistic ambiguity
+                "is_return_or_mismatch": 0,
+                "true_spike_window": in_spike_window(ts),
+                "true_ring_id": ring_id,
+            })
+            idx += 1
+    return rows
 
 
 if __name__ == "__main__":
     rows = [gen_transaction(i) for i in range(N)]
     df = pd.DataFrame(rows)
+
+    ring_rows = gen_ring_transactions(N)
+    ring_df = pd.DataFrame(ring_rows)
+    df = pd.concat([df, ring_df], ignore_index=True)
+
     df.to_csv(f"{BASE_DIR}/data/transactions.csv", index=False)
-    print(f"Generated {len(df)} transactions")
-    print(f"Fraud rate: {df['is_fraud'].mean():.3f}")
+    print(f"Generated {N} base transactions + {len(ring_df)} ring transactions ({N_RINGS} rings) = {len(df)} total")
+    print(f"Overall fraud rate: {df['is_fraud'].mean():.3f}")
     print(f"Mismatch/return rate: {df['is_return_or_mismatch'].mean():.3f}")
+    print(f"Transactions in a ground-truth spike window: {df['true_spike_window'].sum()} ({df['true_spike_window'].mean()*100:.1f}%)")
 
     # --- PROACTIVE signal-strength check — done BEFORE any model is
     # trained, not after seeing a bad AUC. If these groups' fraud rates
@@ -171,3 +284,5 @@ if __name__ == "__main__":
     print(df.groupby("category_match")["is_return_or_mismatch"].mean())
     print("\nMismatch rate by price_within_budget (want a clear gap):")
     print(df.groupby("price_within_budget")["is_return_or_mismatch"].mean())
+    print("\nFraud rate in spike windows vs outside (want a clear gap):")
+    print(df.groupby("true_spike_window")["is_fraud"].mean())
