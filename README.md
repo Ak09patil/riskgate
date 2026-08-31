@@ -394,15 +394,19 @@ justify. That's a real finding, not smoothed over: a production
 deployment would want to cap how much weight any single area's history
 can carry for an individual customer's score.
 
-## Two more loss classes, beyond fraud-risk and intent-match
+## Two validated extensions, beyond the primary fraud-risk build
 
-The track brief names four example directions. Fraud-risk and intent-match
-cover two (a fraud detector, and — literally — a return-risk scorer,
-since intent-match is trained to predict `is_return_or_mismatch`). We
-built the other two deliberately, not by default — see docs/ARCHITECTURE.md
-"Problem Taste" for the full reasoning on why these two, specifically,
+Fraud-risk is where this submission's real depth lives — see "Does the
+methodology hold up on real data" and the calibration/fairness sections
+below, all of which are specifically about that one model. Intent-match,
+the abuse-ring sentinel, and the fraud-spike detector are genuine,
+separately-tested extensions on top of it, not three more attempts at
+the same depth — each has its own held-out precision/recall against
+real injected ground truth, at a lighter (but real) standard
+proportionate to their role. See docs/ARCHITECTURE.md "Problem Taste"
+and "Build Quality" for the full reasoning on why these, specifically,
 and why they're genuinely different problem shapes from per-transaction
-scoring, not just "a third similar thing."
+scoring, not just "more of the same thing."
 
 ### Abuse-ring sentinel (`src/ring_detector.py`)
 
