@@ -281,4 +281,12 @@ if __name__ == "__main__":
     print("  GET  /detect_spikes          -> fraud-spike detector (time-series volume anomaly detection)")
     print("  POST /record_outcome         -> logs a real confirmed outcome for a held transaction")
     print("  GET  /feedback_status        -> model accuracy vs. real recorded outcomes so far")
-    app.run(port=5050, debug=False)
+    # threaded=True: without this, Flask'''s dev server handles one
+    # request at a time even under "concurrent" load, which silently
+    # turned load_test.py'''s concurrency test into a serial-throughput
+    # test instead (found via a linear latency-vs-concurrency curve
+    # that shouldn'''t exist under genuine parallelism). Still a dev
+    # server, not production-grade — a real deployment would run
+    # behind gunicorn/uwsgi — but this at least measures what the test
+    # claims to measure.
+    app.run(port=5050, debug=False, threaded=True)
