@@ -30,10 +30,9 @@ ILLUSTRATIVE_DAILY_VOLUME = 1_000_000
 df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
 train_df, test_df = train_test_split(df, test_size=0.2, random_state=42, stratify=df["is_fraud"])
 
-from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES
+from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES, compute_shrunk_pincode_rates
 
-pincode_rate_map = train_df.groupby("pincode")["is_fraud"].mean()
-global_fraud_rate = train_df["is_fraud"].mean()
+pincode_rate_map, global_fraud_rate = compute_shrunk_pincode_rates(train_df)
 test_df = test_df.copy()
 test_df["pincode_return_rate"] = test_df["pincode"].map(pincode_rate_map).fillna(global_fraud_rate)
 test_df["is_cod"] = (test_df["payment_mode"] == "COD").astype(int)

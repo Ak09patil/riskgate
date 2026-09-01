@@ -40,7 +40,7 @@ import joblib
 df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
 
 # --- feature engineering ---
-from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES
+from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES, compute_shrunk_pincode_rates
 df["is_cod"] = (df["payment_mode"] == "COD").astype(int)
 df["is_new_agent"] = (df["agent_age_days"] < NEW_AGENT_AGE_DAYS).astype(int)
 df["high_value"] = (df["order_value"] > HIGH_VALUE_THRESHOLD).astype(int)
@@ -61,8 +61,7 @@ train_df, test_df = train_test_split(
     df, test_size=0.2, random_state=42, stratify=df["is_fraud"]
 )
 
-pincode_rate_map = train_df.groupby("pincode")["is_fraud"].mean()
-global_fraud_rate = train_df["is_fraud"].mean()  # fallback for unseen pincodes
+pincode_rate_map, global_fraud_rate = compute_shrunk_pincode_rates(train_df)
 
 train_df = train_df.copy()
 test_df = test_df.copy()

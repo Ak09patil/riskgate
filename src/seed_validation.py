@@ -25,14 +25,13 @@ from sklearn.metrics import precision_score, recall_score, roc_auc_score
 
 df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
 
-from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES
+from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES, compute_shrunk_pincode_rates
 FEATURES = FRAUD_FEATURES  # imported, not duplicated — see train_fraud_model.py
 
 results = []
 for seed in [42, 7, 123, 2026, 99]:
     train_df, test_df = train_test_split(df, test_size=0.2, random_state=seed, stratify=df["is_fraud"])
-    pincode_rate_map = train_df.groupby("pincode")["is_fraud"].mean()
-    global_fraud_rate = train_df["is_fraud"].mean()
+    pincode_rate_map, global_fraud_rate = compute_shrunk_pincode_rates(train_df)
 
     train_df = train_df.copy()
     test_df = test_df.copy()

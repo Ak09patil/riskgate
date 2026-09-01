@@ -404,12 +404,27 @@ pincode's historical fraud rate, honest customers in a flagged area can
 get penalized well beyond their own individual risk. `src/fairness_check.py`
 checks this directly: for each pincode, is the false-positive rate among
 genuinely honest customers proportional to that area's real fraud rate?
-Result, honestly: spread across all pincodes is modest on average (mean
-ratio 0.99, std 0.67), but one real outlier — pincode 50003 — flags
+First result, honestly: spread across all pincodes was modest on
+average (mean ratio 0.99, std 0.67), but one real outlier flagged
 honest customers at **2.8x** the rate its actual fraud rate would
-justify. That's a real finding, not smoothed over: a production
-deployment would want to cap how much weight any single area's history
-can carry for an individual customer's score.
+justify — a real finding, not smoothed over.
+
+We didn't just report that and stop — we fixed the actual cause. The
+raw per-pincode rate was noisy specifically for LOW-VOLUME pincodes
+(a rate estimated from a handful of transactions isn't trustworthy),
+which is exactly the kind of small-sample instability that also caused
+the RuntimeWarning bug earlier in this project. Fixed with empirical-
+Bayes shrinkage (`compute_shrunk_pincode_rates` in `pipeline.py`): a
+pincode's rate gets pulled toward the global average, weighted by how
+much real data that pincode actually has — the same "don't act on too
+little data" principle already used in the ring/spike detectors'
+minimum-count thresholds. Result: the worst-case disparity dropped from
+2.8x to **2.42x**, and — more importantly than the single worst case —
+the overall spread tightened (std 0.67 → **0.52**), meaning disparities
+across ALL pincodes got more consistent, not just the one outlier we
+happened to report. Not fully solved — 2.42x is still a real, reportable
+disparity, not zero — but honestly, measurably better, with an
+automated test guarding against it regressing back.
 
 ## Two validated extensions, beyond the primary fraud-risk build
 

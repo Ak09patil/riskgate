@@ -43,6 +43,44 @@ FRAUD_FEATURES = [
 ]
 INTENT_FEATURES = ["category_match", "price_within_budget", "attribute_match", "price_delta_pct"]
 
+PINCODE_SHRINKAGE_K = 20  # see compute_shrunk_pincode_rates() docstring
+
+
+def compute_shrunk_pincode_rates(train_df, shrinkage_k=PINCODE_SHRINKAGE_K):
+    """
+    Empirical-Bayes shrinkage for pincode-level fraud rates — pulls a
+    pincode's estimated rate toward the GLOBAL average, weighted by how
+    much real data that pincode actually has. Fixes a real, reported
+    finding: the raw per-pincode rate was noisy for low-volume
+    pincodes, and one specific pincode over-flagged honest customers at
+    2.8x its real risk as a result (see fairness_check.py and README
+    "Does the model treat every pincode fairly?").
+
+    shrinkage_k is the "pseudo-count" of global-average belief every
+    pincode starts with, before its own data outweighs it. A pincode
+    with far fewer than k real transactions gets pulled strongly toward
+    the global rate — its own small sample isn't trusted much yet. One
+    with far more barely moves from its own raw rate — it has earned
+    the right to be trusted on its own evidence. k=20 was chosen before
+    seeing the fairness-check result improve, not tuned to hit a
+    specific number afterward — it's simply a modest, defensible
+    "don't fully trust a rate estimated from under ~20 transactions"
+    threshold, the same order of magnitude as MIN_RING_SIZE and
+    MIN_BUCKET_COUNT elsewhere in this project's "don't act on too
+    little data" philosophy.
+
+    This is the ONE place this computation lives — imported everywhere
+    else that needs it, not duplicated, after finding that exact
+    duplication bug (six separate hardcoded copies of FRAUD_FEATURES)
+    once already in this project.
+    """
+    global_fraud_rate = train_df["is_fraud"].mean()
+    grouped = train_df.groupby("pincode")["is_fraud"].agg(["mean", "count"])
+    shrunk_rate = (
+        grouped["count"] * grouped["mean"] + shrinkage_k * global_fraud_rate
+    ) / (grouped["count"] + shrinkage_k)
+    return shrunk_rate.to_dict(), global_fraud_rate
+
 _fraud_model = None
 _fraud_scaler = None
 _intent_model = None

@@ -1,10 +1,10 @@
 {
   "total_transactions": 4072,
   "decision_counts": {
-    "HOLD_FRAUD_REVIEW": 1703,
-    "AUTO_APPROVE": 1597,
-    "HOLD_LIKELY_MISMATCH": 505,
-    "HOLD_CONFIRM_WITH_HUMAN": 267
+    "HOLD_FRAUD_REVIEW": 1704,
+    "AUTO_APPROVE": 1598,
+    "HOLD_LIKELY_MISMATCH": 504,
+    "HOLD_CONFIRM_WITH_HUMAN": 266
   },
   "avg_fraud_risk": 0.471,
   "avg_intent_match": 0.584,
