@@ -1,0 +1,5 @@
+model,best_threshold,f2,precision,recall,auc,train_time_s,infer_time_s
+XGBoost,0.4,0.8557,0.8925,0.8469,0.9673,1.79,0.029
+Random Forest,0.45,0.8187,0.6942,0.8571,0.9816,17.51,0.096
+Logistic Regression,0.95,0.7073,0.3901,0.8878,0.9721,0.33,0.005
+LightGBM,0.05,0.0656,0.0139,0.9184,0.9031,1.06,0.021
