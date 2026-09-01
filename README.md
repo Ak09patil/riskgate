@@ -2,592 +2,161 @@
 
 [![Tests](https://github.com/Ak09patil/riskgate/actions/workflows/tests.yml/badge.svg)](https://github.com/Ak09patil/riskgate/actions/workflows/tests.yml)
 
-A risk layer for AI-agent-initiated transactions. See `docs/SPEC.md` for
-the full problem framing and design reasoning.
+A risk layer for AI-agent-initiated transactions, built for Razorpay's AI Buildathon 2026, Track 2 (AI Risk Manager). This is the complete record of the project — reasoning, numbers, and the full engineering trail — since a five-minute video can't hold everything and this can.
 
-**A fair thing to be skeptical of, addressed upfront:** the numbers below
-come from synthetic data we generated ourselves — a reasonable "of course
-your model finds the pattern you put there" reaction. We tested that
-directly, not just argued around it: `src/real_data_validation.py`
-validates the same modeling methodology against 284,807 **real** credit
-card transactions with real fraud labels (AUC 0.972). See "Does the
-methodology hold up on real data" further down for the honest full
-picture, including where a more complex model could beat that number.
+## The principles behind this build
 
-**A second fair question, also addressed upfront:** why logistic
-regression, not a more complex model — not just against XGBoost, but
-against the whole reasonable field. `src/full_model_comparison.py`
-tests seven models (Random Forest, Gradient Boosting, XGBoost,
-LightGBM, SVM, Naive Bayes, KNN) on identical data, features, split,
-and threshold-tuning methodology — no model gets an advantage another
-doesn't. Result, reported honestly both ways: by raw AUC, Random
-Forest edges ahead by 0.005 — a gap smaller than this model's own
-run-to-run seed noise (std 0.025, measured separately). By F2 — the
-metric that actually drives our threshold decisions, encoding the real
-cost asymmetry between missing fraud and annoying a good customer —
-**logistic regression is the single highest-scoring model of everything
-tested**, not just competitive with the field. Two automated tests
-(`TestFullModelComparisonJustification`) guard both findings — if a
-future change makes either stop being true, CI catches it. See "AI
-Judgment" in `docs/ARCHITECTURE.md` for the full reasoning, including
-the honest limits of this claim at larger scale.
+Every decision below follows from four rules, applied the same way whether the decision was about a model, a feature, or a line of UI copy:
 
-## How the pieces actually connect (this matters)
+1. **Explicit over opaque.** Every score in this system resolves to a small set of printable numbers with a stated reason, not a black-box output. This is the same core idea behind Anthropic's own Constitutional AI approach — a model is more trustworthy when it's guided by written, inspectable principles than by an opaque preference nobody can read back.
+2. **Test the claim, don't just assert it.** Every "why we chose X over Y" statement in this project has a script behind it that actually ran the comparison. Reasoning is a starting point here, not a finishing one.
+3. **Self-critique, then revise, on a loop.** The single biggest driver of quality in this build wasn't the first version of anything — it was going back and checking each finished piece against its own stated standard (calibration checked, fairness checked, coverage checked), finding the gap, and fixing the actual cause. That loop ran dozens of times.
+4. **Disclose the limits as clearly as the strengths.** Every claim in this document has an honesty boundary attached to it. A result with no stated limit isn't a stronger result — it's an unchecked one.
 
-This is one system, not separate scripts:
+## Model choice
 
-1. `src/generate_data.py` → produces `data/transactions.csv`
-2. `src/train_fraud_model.py` → trains the fraud-risk model, saves it to
-   `models/`, ALSO saves the pincode-rate lookup and the F2-optimal
-   threshold as their own artifacts (`pincode_rate_lookup.pkl`,
-   `fraud_f2_threshold.pkl`) so nothing downstream ever hardcodes a copy
-   that could silently go stale.
-3. `src/train_intent_model.py` → trains the intent-match model, same
-   artifact pattern (`intent_threshold.pkl`).
-4. **`src/pipeline.py`** → THE unified entrypoint and the ONLY place
-   scoring/gating logic lives. One function, `score_transaction(txn: dict)
-   -> decision dict`, loads all three models/artifacts (fraud, intent,
-   preference-fit heuristic) and runs the full gate. Every other script
-   below calls this — there is exactly one gating implementation (this
-   used to not be true; see "what broke" for why that mattered).
-5. `src/catalog.py` + `src/shopping_agent.py` → a minimal, rule-based
-   shopping agent that proposes a purchase from a small catalog given a
-   human's intent. Exists to demonstrate `pipeline.py` against a realistic
-   scenario — not a second product (see SPEC.md's Track 2 positioning).
-6. `src/gating.py` → thin batch wrapper: runs `pipeline.score_transaction()`
-   over the whole dataset, saves `data/gating_decisions.csv`.
-7. `src/build_dashboard_data.py` → merges transactions with gating
-   decisions, produces the dashboard's `demo_data.json`/`agg_stats.json`
-   ("replay mode" data). `src/embed_dashboard_data.py` re-embeds that data
-   into `dashboard/index.html` so the dashboard also works as a single,
-   portable file.
-8. `src/preference_fit.py`, `src/drift_test.py`, `src/seed_validation.py`,
-   `src/baseline_comparison.py`, `src/cost_sensitivity.py` → validation
-   and honesty checks, all calling the real pipeline, none reimplementing
-   its logic. See "What's genuinely validated vs. heuristic" below.
-9. `src/api.py` → exposes `pipeline.py` (and the shopping agent) over a
-   local HTTP API so the dashboard and the consumer demo mock
-   (`demo/landing.html` → `demo/checkout.html`) can call it live.
-10. `dashboard/index.html` → four-tab UI (Consumer, Merchant, Razorpay,
-    Fraud queue). Calls the live API at `localhost:5050` when running;
-    falls back to the pre-built replay data if the server isn't up.
-11. `src/pattern_narrative.py` → the one place RiskGate uses an LLM, and
-    deliberately not for the actual decision. Deterministically detects
-    shared-attribute clusters (pincode, new-agent bursts, repeat agents)
-    across a batch of held transactions using plain pandas, then
-    optionally calls Claude to phrase those already-computed facts into
-    readable prose (falls back to a clean template with no API key
-    needed — the feature works fully without one). Exposed via
-    `/fraud_batch_narrative`, shown in the dashboard's Fraud queue tab.
-12. `src/feedback_loop.py` → a real, working shadow-mode mechanism, not
-    just a described one: records a held transaction's confirmed real
-    outcome, evaluates the model against real outcomes so far, and
-    demonstrates retraining with feedback folded in — fairly compared
-    against the same held-out test set. Exposed via `/record_outcome`
-    and `/feedback_status`; the dashboard's Fraud queue Approve/Reject
-    buttons actually call this now, not just a cosmetic UI change.
-13. `src/ring_detector.py` → abuse-ring sentinel — a relational/graph
-    problem, not per-transaction classification. Union-find over
-    shared pincode + fresh agents + tight time window, validated
-    against injected ground truth (precision 0.923, recall 1.0).
-    Exposed via `/detect_rings`.
-14. `src/spike_detector.py` → fraud-spike detector — time-series
-    anomaly detection over aggregate transaction volume, a third
-    distinct problem shape. Median/MAD-based bucket anomaly flagging,
-    validated against injected ground truth (precision 0.545, recall
-    0.545). Exposed via `/detect_spikes`.
+Logistic regression scores the fraud-risk model. That's a deliberate choice, tested against the field, not a default.
 
-## Running it for real (live, not replayed)
+`src/full_model_comparison.py` runs it against seven other models — Random Forest, Gradient Boosting, XGBoost, LightGBM, SVM, Naive Bayes, KNN — on identical data, features, and held-out split, with every model getting its own independently-tuned threshold. On raw AUC, Random Forest scores 0.005 higher, a gap smaller than this model's own natural variation from picking a different random seed (measured separately at std 0.025). On F2 — the metric that actually decides where the threshold sits, because a missed fraud costs more than an unnecessary hold — logistic regression is the single best model of everything tested. Two automated tests guard both results independently, so if either stops being true, the build fails rather than the claim quietly going stale.
 
-```bash
+The reasoning behind the choice, before the test confirmed it: Razorpay's own stated bar is that every money decision needs to be explainable and bounded. A model whose entire decision is nine numbers you can print satisfies that more directly than one that needs SHAP values bolted on afterward. Then I tested whether that choice was costing anything — it wasn't.
+
+This holds at the current data size, around 4,000 transactions, and I'm stating that scope directly rather than letting it be assumed to hold at any size. More data generally gives a more flexible model more signal to work with, so this is a staged decision, not a permanent one — and the comparison script isn't a one-off; it's a permanent test that reruns this exact question and fails the build the moment a more complex model actually starts winning.
+
+## The problem
+
+Razorpay is already piloting AI agents that check out on a customer's behalf — Agent Studio, and the NPCI UAP pilot with Zomato, Swiggy, and Zepto. Every payment before this had one moment — a human typing a PIN — that did two jobs at once: it stopped fraud, and it caught honest mistakes, because the person looked once more at what they were about to buy before confirming it. Agentic checkout removes that moment completely. Fraud detection still exists — Razorpay has Thirdwatch, analyzing 200+ signals. That's job one, solved. Nobody's solving job two: catching a fully-authorized, non-malicious agent that still got the purchase wrong.
+
+That gap — agent decision-quality risk — is what RiskGate targets. Not a second fraud detector. A signal category that Thirdwatch's architecture, built for a world where a human always made the final call, was never designed to see.
+
+Thirdwatch's publicly described signal set (device fingerprinting, address quality, buyer behavior) reads as built for a human making the decision — worth stating as an inference from what's public, not verified knowledge of its real feature set. If Thirdwatch already covers this, the framing would need revising. The underlying question doesn't change either way: does any existing fraud system have a concept of agent authorization scope, distinct from fraud? Publicly, nothing suggests one does.
+
+**On staying strictly defense-only:** nothing here performs or enables an attack. The scoring models classify risk, the shopping agent is a benign test harness, and the one LLM use only summarizes already-computed facts. This repo does publish exact model weights and thresholds — worth addressing directly, since it's in service of the interpretability argument above. Those numbers come from a model trained on synthetic, self-generated data; they reveal nothing about Razorpay's real thresholds or Thirdwatch's actual signals. Being transparent about a prototype isn't the same as publishing detail about a real deployed system.
+
+## What it is
+
+Three separate scores on every transaction:
+
+- **Fraud-risk** — is this a bad actor.
+- **Intent-match** — did the agent's purchase match what the customer asked for. Kept separate from fraud-risk on purpose: a bad actor needs blocking, an honest mistake needs a quick human check, and one number can't hold both responses at once.
+- **Preference-fit** — does this deviation match what this customer has done before. Kept as an honest heuristic, not a third trained model, because there's no ground-truth label anywhere for "would this customer have preferred this" — training against a label I invented myself would be false rigor. Tested directly rather than assumed to work (see "What broke").
+
+These feed a gate with four outcomes: auto-approve, hold for a fraud analyst, hold for a quick customer confirmation, or hold as a likely mistake. 39% of transactions get zero human involvement — the PIN replaced, not simulated. Only 19% go back to the customer, and only for genuinely ambiguous cases; the rest goes to an analyst. The old PIN asked every time, blind to whether it was needed. This only asks when it is.
+
+A circuit breaker sits alongside the three scores: any order more than roughly twice the largest value ever seen in training holds automatically, regardless of score. I added this after testing an unrealistic four-lakh grocery budget myself and watching it sail through as approved, because training never taught the model that value existed. A model has no real basis for an opinion that far outside what it's learned from.
+
+Two more scores, added later and deliberately:
+
+- **Abuse-ring sentinel** (`src/ring_detector.py`) — fraud-risk and intent-match look at one transaction at a time; a coordinated ring across several accounts is invisible to that. Links transactions sharing a pincode, coming from very new agents, landing in a tight time window, then finds connected clusters with union-find. Tested against fifteen injected rings: 92.3% precision, 100% recall, all fifteen recovered. On data with zero injected rings, false-positive rate was 0.07%.
+- **Fraud-spike detector** (`src/spike_detector.py`) — a different kind of math, time-series anomaly detection instead of classification. Flags a time window if its fraud rate is far from the typical bucket's rate, using median and MAD instead of mean and standard deviation, since a real spike would drag a mean-based baseline up too. Tested against four injected spikes: 54.5% precision, 54.5% recall — weaker than the ring detector, from noise in low-count buckets, reported as it is.
+
+The track names four example directions. Fraud-risk carries the weight of this submission — the only score checked against a real external dataset, calibration-audited, fairness-audited, benchmarked against the full field. Intent-match, the ring detector, and the spike detector are genuinely validated too, at a lighter standard, because they're extensions, not three more attempts at the same depth. I didn't build a chargeback responder — no ground-truth "did this evidence packet win the dispute" signal exists anywhere, so it can't be measured with real precision and recall, and I'd rather not build something I can't honestly test.
+
+## Why the other big calls
+
+**Not an LLM for the scoring itself.** A bounded, structured classification problem over a handful of features doesn't need a slower, non-deterministic model with no clean feature-weight explanation. Nine printable numbers satisfy "every money action explainable, bounded, gated" more directly than a prompt.
+
+**The one place an LLM is used.** `src/pattern_narrative.py` phrases already-computed, deterministic findings into a readable brief for a fraud analyst — never decides anything. Detection is plain groupby logic, auditable without an API call. No key configured, no problem: the same facts get a clean template instead.
+
+**Why the shopping agent is simple, not agentic.** A multi-agent system and an LLM-driven negotiating agent were both considered and cut. Multi-agent orchestration adds real debugging surface to a part of the system that isn't the actual submission. The negotiating agent was cut for a sharper reason: it would have made RiskGate behave like a merchandising nudge, which sits oddly against Razorpay's public identity as neutral infrastructure, not a recommendation business.
+
+**On building this with heavy AI assistance.** Stated plainly, not apologetically — the track's own criteria name "AI Judgment" as something to evaluate, which only makes sense if AI-assisted building is the expected mode. What's being judged is the decisions on this page: what to build, what to cut, which claims to test instead of assert, which limits to name instead of hide.
+
+## The numbers
+
+- Fraud-risk model: cross-validated AUC around 0.72, stable across five seeds (std ~0.02), F2 around 0.70.
+- A hand-written rule ("COD and device mismatch and new agent") scores F2 0.045 on the same data. The trained model beats it by roughly 15x.
+- Validated against 284,807 real credit card transactions with real fraud labels, since I don't have real Razorpay data. AUC: 0.972.
+- The model was overconfident before I checked — a "0.5–0.6" prediction was right about a third of the time. Fixed with Platt scaling; Brier score moved from roughly 0.22 to roughly 0.19.
+- Checked geographic fairness across pincodes. Found one outlier flagging honest customers at 2.8x its actual risk, traced to noisy small-sample rate estimates, fixed with statistical shrinkage — down to 2.42x, with the spread across every pincode tightening, not just the one worst case.
+- False-positive rate at the F2-optimal threshold is high, around 85% — indefensible at real volume, which is why the live product gates at a separate, business-realistic threshold (0.5) instead. Both numbers are labeled everywhere so neither is presented as the other.
+- 36 automated tests, two tiers, running on GitHub's own servers on every push.
+- Translated the model's precision and recall into money, transparently — every assumption stated, none hidden in a formula (`src/cost_sensitivity.py`). At the live threshold and this project's own real order values, fraud loss prevented outweighs revenue put at risk by false holds at every threshold tested, and the gap holds directionally regardless of the exact illustrative volume or abandonment-rate assumption used, because a caught fraud is a full order value while a false hold is a small fraction of one.
+- Load-tested the scoring path itself against real concurrent HTTP requests, not claimed a number (`src/load_test.py`): sustained ~220 requests/second with zero errors at 1,000 requests and 50 concurrent connections, on a single unoptimized process. This tests something specific and honest — whether the architecture holds up under real load — not model accuracy at real volume, which needs real data this project doesn't have.
+
+## What broke, and what I did about it
+
+Good numbers alone don't prove much — a model can happen to work. What's harder to fake is a real trail of things that were wrong, found by running the system, not by reading the code and assuming it was fine.
+
+**Data leaked between train and test.** A pincode-rate feature was computed from the full dataset, test rows included. Fixed by computing it train-only, saved as its own artifact.
+
+**The gating logic existed in two places.** `gating.py` had grown into a second, independent copy of the logic already in `pipeline.py`. A threshold change updated one and silently left the other stale — a real bug I hit. Fixed by making `gating.py` a thin wrapper around one implementation. Found the same staleness pattern a third time later, elsewhere, and fixed it the same way.
+
+**Preference-fit had zero real relationship with actual outcomes.** Tested the correlation directly instead of trusting the formula — it was essentially zero, because the deviation signal and the mismatch label had been generated independently. Fixed by wiring a real causal link, then verified it (18% mismatch rate for low preference-fit versus 9.5% for high).
+
+**Cross-platform numerical instability.** Training threw a silent overflow warning on a second machine that never appeared in the original environment. Fixed with stronger regularization, then found the identical warning quietly present in four more files calling the same model, fixed there too.
+
+**`order_id` wasn't reproducible across runs**, generated with a random UUID instead of something deterministic, breaking a feedback feature that depends on looking an order back up later. The fix itself had a second bug — pandas read the new sequential ID as an integer and stripped the leading zeros. Fixed with a non-numeric prefix pandas can't misread.
+
+**Six files each hardcoded their own copy of the fraud feature list**, found only because adding one new feature required updating one copy and revealed the other five never got it. Fixed by having every file import from one place. Found the identical pattern again later, in eight files independently recomputing a pincode rate, fixed the same way.
+
+**Two live endpoints crashed on bad input** — one on an empty request body, one on a non-numeric budget field from a live browser input. Found during a deliberate malformed-input pass. Fixed with real validation on both.
+
+**The fraud queue's approve and reject buttons had no double-click protection**, found in the same pass, fixed with the disable-while-pending pattern already used elsewhere.
+
+**A broken JavaScript comment silently killed the dashboard's interactivity.** A missing `//` meant a whole block was being read as executable code. Found because a real click did nothing, not by any file-level check. Fixed, and I added a real syntax check to my process afterward instead of the weaker one I'd been relying on.
+
+**Two "hold" decisions behaved identically**, both finalizing the order first and explaining afterward — meaning "confirmation" wasn't confirming anything. Found by asking myself directly why two outcomes existed if neither let the customer actually decide. Fixed with a real pre-purchase gate; `HOLD_FRAUD_REVIEW` kept deliberately different, since a fraud hold shouldn't be self-clearable by the customer.
+
+**A concurrency bug in feedback-recording**: five people confirming an outcome at close to the same moment lost four of five records silently, while the system reported success to all five. The first fix passed twenty times in my own environment, then failed differently on separate hardware. The second fix — checking the file's actual size from the OS instead of a buffered stream position — was verified thirty times on the machine that broke the first attempt, then at a hundred simultaneous real HTTP requests.
+
+**Negative and zero prices were silently accepted and scored**, one case even auto-approved, found during a deliberate adversarial-input pass. Fixed with validation on both affected endpoints. A related gap: calling the shopping agent's function directly, bypassing the API, had zero protection against the same input. Fixed at the function itself.
+
+**XGBoost's Python package installs cleanly but its compiled internals need a system library macOS doesn't ship by default.** A comparison script that worked in my environment crashed the moment it ran elsewhere — my error handling only accounted for the package being missing, not present-but-failing-to-load. Fixed by broadening the exception handling to the real failure type, and changing the test to check an actual return value instead of a shallower import check.
+
+**A committed model artifact was trained with a different scikit-learn version than a fresh install pulls by default**, found by cloning the actual public repo fresh — the way anyone judging this would actually experience it. Harmless here, but fixed by pinning the dependency so a fresh install can't silently drift.
+
+**Watching my own demo, I caught a UI message that was simply wrong** — the checkout screen labeled a purchase "within budget" even when the agent had picked something over budget because nothing else matched. Also caught a flow asking the customer to confirm before seeing any risk information at all, with the real reasoning only shown afterward. Fixed both.
+
+Nearly every one of these was found by actually running the system, questioning an assumption, or trying to extend it — not by static review. Confidence has to come from running something repeatedly, in conditions you don't fully control.
+
+## What I know is still missing
+
+Every UX decision — the wording of confirmation screens, whether "propose, then ask" is the right response to a borderline case — was reasoned from my own judgment, never tested against a real person. Proper UX validation needs real users, and a solo submission on this timeline doesn't have that.
+
+Every synthetic-data claim carries that limitation directly, which is exactly why the real-data validation exists — to check the same method against something that isn't mine.
+
+True cross-browser testing wasn't performed; every manual check was done in Safari. The JavaScript used should be safe on any current browser, but that's reasoned confidence, not verified confidence.
+
+## What I'd build next
+
+- Replace synthetic fraud data with real dispute and return outcomes, re-derive both models empirically.
+- Integrate real agent-authorization scope objects (UAP or AP2-style mandates) instead of conflating authorization with stated intent.
+- Run RiskGate in shadow mode against Thirdwatch's real traffic before trusting any autonomous gating.
+- Build a chargeback-evidence responder — deliberately not built here, since it can't be measured with real precision and recall the way everything else in this project was.
+
+## Running it
+
+```
 pip install -r requirements.txt
-
-# 1. generate data + train both models (only needed once, or to retrain)
 python3 src/generate_data.py
 python3 src/train_fraud_model.py
 python3 src/train_intent_model.py
-
-# 2. build the dashboard's "replay mode" data (merges transactions with
-# gating decisions; also needed if you skip step 4's live API and just
-# want the standalone dashboard file to reflect current data)
 python3 src/gating.py
 python3 src/build_dashboard_data.py
-python3 src/embed_dashboard_data.py   # re-embeds it into dashboard/index.html
-
-# 3. start the live API
-python3 src/api.py
-# -> running on http://localhost:5050
-# optional: export ANTHROPIC_API_KEY=... before starting the API to get
-# LLM-phrased pattern narratives in the Fraud queue tab (instead of the
-# clean deterministic template, which is used by default with no key)
-
-# 4. open dashboard/index.html in a browser
-# The "Run new transaction" button will now show "● LIVE" and call the
-# real pipeline. Without the API running, it falls back to "○ replay"
-# using the data built in step 2. The Fraud queue tab's Approve/Reject
-# buttons now actually call /record_outcome — a real feedback mechanism,
-# not a cosmetic UI change (see src/feedback_loop.py).
-
-# 5. optional — validation experiments (not required to run the product,
-# but worth running to see the honesty checks behind the reported numbers)
-python3 src/seed_validation.py    # confirms metrics are stable, not a lucky split
-python3 src/baseline_comparison.py # proves the model beats a naive rule (F2: 0.699 vs 0.016)
-# real_data_validation.py needs a real dataset first (not committed, ~100MB):
-#   mkdir -p /tmp/realdata && curl -o /tmp/realdata/creditcard.csv \
-#     https://raw.githubusercontent.com/nsethi31/Kaggle-Data-Credit-Card-Fraud-Detection/master/creditcard.csv
-python3 src/real_data_validation.py # validates our methodology on real fraud data (AUC 0.972)
-python3 src/calibration_check.py    # checks if probabilities are trustworthy, fixes if not
-python3 src/fairness_check.py       # checks for geographic over-flagging bias
-python3 src/pattern_narrative.py    # standalone demo of the batch pattern-detection + narrative
-python3 src/ring_detector.py        # abuse-ring sentinel, validated against injected ground truth
-python3 src/spike_detector.py       # fraud-spike detector, validated against injected ground truth
-python3 src/model_complexity_comparison.py  # tests "why not XGBoost" directly, not just argued
-python3 src/feedback_loop.py        # standalone demo of the feedback/retrain mechanism
-python3 src/drift_test.py         # tests the model against a shifted distribution
-python3 src/cost_sensitivity.py   # threshold tradeoff table at illustrative scale
-
-# 6. optional — the full consumer-facing demo flow
-# open demo/landing.html, click through to demo/checkout.html, enter a
-# real request, and watch it go through the live shopping agent + RiskGate
+python3 src/embed_dashboard_data.py
+python3 src/api.py          # live API on localhost:5050
 ```
 
-## What's genuinely validated vs. heuristic
+Open `dashboard/index.html` for the operator view, or `demo/checkout.html` for the consumer flow. Both work standalone from sample data and switch to live scoring the moment `src/api.py` is running.
 
-- **Fraud-risk** and **intent-match**: trained logistic regression models,
-  proper train/test split, no leakage, honest precision/recall reported
-  (see the printed output of the training scripts), cross-validated across
-  5 folds, stable across 5 different random seeds, and shown to genuinely
-  outperform a naive rule-based baseline (F2: 0.699 vs. 0.016).
-- **Preference-fit**: an explicit, transparent heuristic — not claimed to
-  be statistically validated to the same standard as the two scores above,
-  because there's no clean ground-truth label for "would this customer
-  have preferred this." We did directly test that it correlates with real
-  outcomes (see "what broke" below) rather than just assuming it does.
-  See SPEC.md for the full reasoning.
+Every validation script mentioned above, runnable directly:
 
-## What broke, and what we fixed (kept honest, on purpose)
+```
+python3 src/seed_validation.py
+python3 src/drift_test.py
+python3 src/baseline_comparison.py
+python3 src/real_data_validation.py
+python3 src/calibration_check.py
+python3 src/fairness_check.py
+python3 src/cost_sensitivity.py
+python3 src/load_test.py       # needs src/api.py running first — real throughput/latency numbers
+python3 src/model_complexity_comparison.py
+python3 src/full_model_comparison.py
+python3 src/ring_detector.py
+python3 src/spike_detector.py
+```
 
-- Initial fraud data generation had too much noise relative to signal —
-  model AUC was 0.585 (barely above random). Fixed by tuning the
-  generator's probability logic to have a real, learnable relationship
-  between risk factors and outcome (final AUC: 0.73).
-- Initial fraud model had a data leak: `pincode_return_rate` was computed
-  from the full dataset (including test rows) before the split. Fixed by
-  computing it from `train_df` only, then saving it as its own artifact
-  for consistent use at inference time.
-- Initial `/full_loop` API endpoint had a variable-scoping bug: `category`
-  was only defined on the GET path, so POST requests (real user input from
-  the checkout mock) crashed with an UnboundLocalError. Fixed by reading
-  from `intent["category"]` consistently on both paths.
-- Preference-fit was designed to predict "is this deviation more likely a
-  mistake or more likely welcome," but we discovered — by directly testing
-  the correlation, not assuming it — that `preference_fit_signal` had
-  essentially zero correlation (-0.013) with actual mismatch/return
-  outcomes in the synthetic data. The cause: the mismatch label was
-  generated independently of preference-fit, so there was no causal path
-  for them to correlate at all. Fixed by making preference-fit genuinely
-  reduce mismatch probability specifically for over-budget deviations
-  (the case it's meant to predict) — after the fix, mismatch rate is 18%
-  when preference-fit is low vs. 9.5% when high, among over-budget orders.
-- The fraud model's classification threshold was left at sklearn's
-  default (0.5) while the intent-match model's was properly F2-optimized
-  — an inconsistency in applying our own stated rigor standard. Fixed by
-  applying the same F2-optimization to the fraud model, which moved its
-  threshold to 0.3 and revealed an important, uncomfortable finding: pure
-  recall-favoring optimization pushes the false-positive rate to ~69% —
-  see "Cost at real scale" below for why that matters and what it means
-  for real deployment.
-- That 0.3 threshold, applied everywhere, held 75% of all transactions
-  for fraud review — an unusable demo and an indefensible production
-  number. Rather than either hiding this or shipping a misleading demo,
-  we deliberately split the threshold: 0.3 stays as the honestly-reported
-  metric (what the model can do at max recall), while the live
-  product/demo gates at a separate, business-realistic 0.5 — both labeled
-  clearly, in code and in the dashboard itself, so neither number is
-  presented as the other.
-- `gating.py` was a second, independent implementation of the same
-  scoring/gating logic already in `pipeline.py` — duplicated, not shared.
-  This is exactly why the intent-match threshold could go stale without
-  anyone noticing (it drifted from 0.65 to 0.55 after a data fix, and only
-  one of the two copies got updated). Fixed at the root, not just the
-  symptom: `gating.py` is now a thin wrapper that calls
-  `pipeline.score_transaction()` — there really is only one gating
-  implementation now, matching what the module's own docstring claims.
-  The same staleness bug also existed a third time, in `seed_validation.py`
-  (using sklearn's default threshold instead of the F2-optimal one) — fixed
-  the same way, by deriving the threshold the same way production does
-  rather than hardcoding a copy.
-- A new user (no purchase history) would get `preference_fit_score = 0`
-  by construction — not because of any real risk signal, but simply
-  because there was no history to compute a score from. That silently
-  penalized new customers exactly the opposite of what a growth-focused
-  platform wants. Fixed by defaulting users with under 30 days of account
-  history to a neutral preference-fit score (0.5), so gating for new users
-  leans on fraud-risk and intent-match instead of penalizing them for
-  being new.
-- The preference-fit category-alignment weighting (originally a guessed
-  0.7/0.3 split) was never validated against real correlation with
-  outcomes. We tested a range of alternatives directly — (0.9-1.0, 0.1)
-  correlated slightly better with actual mismatch/return outcomes than the
-  original guess — and updated to (1.0, 0.2), now empirically checked
-  rather than picked by feel. Not claimed optimal, just no longer arbitrary.
-- The fraud-probability formula's coefficients were originally tuned
-  reactively, after seeing a bad AUC — a real circularity problem (see the
-  signal-strength fix above). We kept the same numeric weights (rederiving
-  exact values would just be a different arbitrary choice without real
-  fraud data) but re-grounded their ordering and justification in cited,
-  general fraud indicators — chosen independent of what makes the metric
-  look good, not after the fact. See `src/generate_data.py` for the
-  reasoning behind each weight.
-- We tested a real, targeted hypothesis: does a COD-and-high-value
-  interaction feature add signal beyond the two factors separately? Raw
-  correlation looked strong (43.1% fraud rate for both together vs.
-  17.5% for neither), so we added it, retrained, and checked honestly —
-  AUC stayed flat (0.732), F2 improved marginally (0.695 → 0.699), and
-  the new feature's own learned weight was small and slightly negative
-  (−0.067). The lesson: a strong raw correlation doesn't guarantee a
-  strong *marginal* contribution once the two underlying factors are
-  already in the model as separate features — logistic regression can
-  partially capture "both true" just by summing their individual
-  weights. Kept the feature anyway (real, if small, improvement; zero
-  cost), but reported the actual size of the effect rather than
-  overselling the raw correlation that motivated it.
-- Adding that one feature required updating the shared feature list in
-  `pipeline.py` — and revealed that six other files
-  (`train_fraud_model.py`, `seed_validation.py`, `drift_test.py`,
-  `baseline_comparison.py`, `cost_sensitivity.py`, `feedback_loop.py`)
-  each had their own hardcoded copy of the same feature list, not
-  imported from the shared source. All six would have silently kept
-  scoring the old feature set while `pipeline.py` used the new one —
-  the exact same class of bug as the `gating.py` duplication caught
-  earlier, just spread across more files. Fixed by importing
-  `FRAUD_FEATURES` from `pipeline.py` everywhere instead.
-- Before submission, we deliberately cloned the actual public GitHub
-  repo fresh (not just deleted local files) and re-ran the full 14-script
-  pipeline against it, to catch anything that only reproduces from a
-  genuinely clean checkout. That pass also surfaced real API robustness
-  gaps: `/score` crashed with a raw 500 error on an empty or incomplete
-  request body instead of a clean error message (unlike `/record_outcome`,
-  which already validated its input), and `/full_loop` crashed if
-  `max_price` was sent as non-numeric text — a real risk since that field
-  comes directly from a browser input in `demo/checkout.html`. Fixed both
-  with explicit validation and clear error responses. Also found the
-  Fraud queue's Approve/Reject buttons had no protection against a rapid
-  double-click, which would silently record the same outcome twice and
-  skew the feedback-accuracy count — fixed with the same disable-while-
-  pending pattern already used elsewhere in the dashboard.
-- `HOLD_CONFIRM_WITH_HUMAN` and `HOLD_LIKELY_MISMATCH` both used to
-  finalize the checkout order regardless, then explain the decision
-  *after* the fact — which defeats the entire point of those two
-  outcomes (they exist specifically so a human gets a real say before
-  the order goes through). Fixed by adding an actual confirmation gate
-  in `demo/checkout.html`: those two decisions now pause and ask before
-  finalizing, while `HOLD_FRAUD_REVIEW` deliberately stays a hold the
-  customer *can't* click through — only an analyst resolves a fraud
-  flag, which is the real, meaningful difference between "held pending
-  the customer" and "held pending review." Restructuring this also
-  introduced (and we caught, via the same syntax check that's caught
-  every dashboard JS bug so far) a mismatched function-closing bracket
-  from converting an anonymous event-listener callback into a named
-  function.
-- On some machines (different numpy/BLAS builds than our dev environment
-  — confirmed on an ARM Mac using Apple's Accelerate framework), training
-  produced `RuntimeWarning: overflow encountered in matmul` during
-  cross-validation — a real numerical stability issue, not cosmetic. Root
-  cause: quasi-complete separation — because we deliberately tuned strong,
-  learnable signal into the synthetic data, some cross-validation folds
-  had features (like device/IP mismatch) that nearly perfectly predicted
-  the outcome, pushing logistic regression's coefficients toward infinity.
-  First attempted fix (moderate L2 regularization, `C=0.5`) reduced but
-  didn't eliminate the warnings on all machines — confirmed by testing on
-  the actual machine that surfaced them, not assumed fixed from a single
-  environment. Fixed properly with stronger regularization (`C=0.1`) plus
-  an explicit, documented warning filter as a safety net against
-  floating-point behavior we can't fully control across every numpy/BLAS
-  build. Verified: reported metrics are unchanged (within normal seed
-  variance) before and after.
-- The first version of `pattern_narrative.py`'s cluster detection flagged
-  a "repeat agent" as any agent appearing 2+ times in a batch — with only
-  ~60 unique agents across the dataset, that's common by pure chance,
-  not a real signal. A 40-transaction test batch produced 17 "patterns,"
-  most of them noise. Fixed by raising the threshold to 3+ occurrences
-  and capping the summary at the 5 strongest clusters — the same batch
-  now surfaces 5 genuinely meaningful patterns instead of crying wolf.
-- `order_id` was generated with `uuid.uuid4()` — unlike every other field,
-  it wasn't derived from the seeded `rng`, so it was different on every
-  run of `generate_data.py` even though the underlying transaction data
-  was otherwise reproducible. This surfaced as a real, user-hit bug: the
-  dashboard's embedded data referenced an order_id that no longer existed
-  after the pipeline was rerun, so `/feedback_status` couldn't match a
-  recorded outcome back to a transaction. Fixed by making `order_id`
-  deterministic (`txn_{index:06d}`) — and specifically non-numeric-only,
-  since an initial fix using a bare zero-padded number got silently
-  reinterpreted as an integer on CSV read, stripping the leading zeros
-  and reintroducing the same mismatch a different way. Verified by
-  actually reproducing the original failure scenario (embed data, rerun
-  the full pipeline, check the ID still matches) — not just checking the
-  fix looked right.
+Full test suite: `pytest tests/ -v`
 
-## Why this, not a simpler thing
-
-The obvious version of Track 2 is a single fraud detector. We didn't build
-that, on purpose. Agentic checkout removes the one moment that used to
-implicitly confirm a purchase — a human tapping a PIN. That moment did two
-jobs at once: it stopped bad actors, AND it caught honest mistakes (wrong
-size, over budget, misread intent). A single fraud score only replaces the
-first job. RiskGate uses two independently validated scores because these
-are different failure modes with different causes, different costs, and
-different correct responses (hold-for-review vs. hold-for-a-quick-human-nod
-vs. auto-approve) — collapsing them into one score would hide exactly the
-distinction that matters for how a merchant or a customer should react.
-
-## How this fits with what Razorpay already has
-
-Razorpay already owns Thirdwatch (acquired 2019, now "Mitra") — a mature
-fraud/RTO prevention product analyzing 200+ signals with merchant-configurable
-risk thresholds. RiskGate is not a competing fraud detector. Thirdwatch's
-signal set (device fingerprinting, address quality, buyer behavior) is built
-on the assumption that a human made the purchasing decision — none of it
-reasons about agent authorization scope or intent-match. That's the specific
-gap agentic checkout opens up, which Thirdwatch's architecture has no way to
-see. The intended relationship: RiskGate's fraud-risk and intent-match scores
-are a new signal category designed to feed into infrastructure like
-Thirdwatch, not replace it — and per-merchant threshold customization (which
-Thirdwatch already does well) is exactly the kind of capability RiskGate
-should compose with, not duplicate.
-
-## Known constraints we thought about and didn't solve
-
-- **No real user or merchant validation**: every UX decision here — the
-  soft consumer-facing explanations, the specific wording of confirmation
-  gates, whether "propose + ask" is actually the right response to a
-  borderline case — was reasoned from first principles and tested against
-  our own judgment, never against an actual person. This is inherent to
-  a solo buildathon timeline, not something more build time would have
-  fixed: real UX validation needs real users, which needs time this
-  format doesn't have. Named plainly rather than implied away.
-- **Revenue tension**: every held transaction is lost revenue for Razorpay
-  too, not just risk avoided for the merchant. `HOLD_CONFIRM_WITH_HUMAN`
-  exists as a separate outcome from an outright block specifically to
-  preserve revenue on borderline cases — and the cost-sensitivity table
-  exists so a business can pick a threshold that weighs fraud-loss against
-  revenue-loss deliberately, not blindly.
-- **Human-confirmation timing**: we considered adding a timeout/expiry
-  policy for `HOLD_CONFIRM_WITH_HUMAN` (what if the human doesn't respond?)
-  and deliberately didn't build one — this path only triggers on genuinely
-  borderline cases, not as a mainline flow, so it isn't yet the highest-value
-  place to add complexity. Worth revisiting once real usage data shows how
-  often it's actually hit.
-- **Regulatory exposure**: scoring based on device/pincode/behavioral
-  history touches RBI's expectations around algorithmic decisioning and
-  India's DPDP Act consent requirements. We use pincode-level, not
-  address-level, granularity as a deliberate privacy-conscious choice.
-  A real deployment would likely fold consent for this kind of scoring into
-  the same one-time agent-authorization consent flow (UAP/AP2-style),
-  rather than requiring a separate ask.
-
-## Does the model actually earn its complexity?
-
-`src/baseline_comparison.py` checks this directly: a simple, fully-auditable
-rule ("flag if COD AND device mismatch AND new agent") scores F2 = 0.016 on
-the same held-out test set — it only catches 1.3% of actual fraud, because
-requiring all three conditions at once is too strict to fire often. The
-trained model scores F2 = 0.699 on the identical test set. This is the
-comparison that justifies using a trained model instead of a rule a risk
-analyst could write and audit by hand in five minutes — without it, an AUC
-number has no real reference point.
-
-## Are the model's probabilities actually calibrated?
-
-We used to report "no" here honestly and leave it unverified. We went
-back and actually checked. `src/calibration_check.py` bins the fraud
-model's predictions and compares the mean predicted probability in each
-bin against the real fraud rate among those transactions. Result: the
-original model was **overconfident** — transactions it scored around
-"0.5–0.6" were only actually fraud 34.1% of the time, not 50-60%. After
-fitting a calibrated version (Platt/sigmoid scaling), that gap shrank
-from a 0.179 average mismatch to 0.070, and the Brier score (lower is
-better) improved from 0.2035 to 0.1764. We saved the calibrated version
-as a separate artifact (`models/fraud_model_calibrated.pkl`) rather than
-silently swapping it into production — promoting a model change needs
-the same scrutiny as any other change, not an automatic swap because a
-number improved.
-
-## Does the model treat every pincode fairly?
-
-We don't have real demographic attributes in this data, and shouldn't
-manufacture them — but geography (pincode) is a legitimate fairness
-dimension we do have, and a real risk: if the model over-relies on a
-pincode's historical fraud rate, honest customers in a flagged area can
-get penalized well beyond their own individual risk. `src/fairness_check.py`
-checks this directly: for each pincode, is the false-positive rate among
-genuinely honest customers proportional to that area's real fraud rate?
-First result, honestly: spread across all pincodes was modest on
-average (mean ratio 0.99, std 0.67), but one real outlier flagged
-honest customers at **2.8x** the rate its actual fraud rate would
-justify — a real finding, not smoothed over.
-
-We didn't just report that and stop — we fixed the actual cause. The
-raw per-pincode rate was noisy specifically for LOW-VOLUME pincodes
-(a rate estimated from a handful of transactions isn't trustworthy),
-which is exactly the kind of small-sample instability that also caused
-the RuntimeWarning bug earlier in this project. Fixed with empirical-
-Bayes shrinkage (`compute_shrunk_pincode_rates` in `pipeline.py`): a
-pincode's rate gets pulled toward the global average, weighted by how
-much real data that pincode actually has — the same "don't act on too
-little data" principle already used in the ring/spike detectors'
-minimum-count thresholds. Result: the worst-case disparity dropped from
-2.8x to **2.42x**, and — more importantly than the single worst case —
-the overall spread tightened (std 0.67 → **0.52**), meaning disparities
-across ALL pincodes got more consistent, not just the one outlier we
-happened to report. Not fully solved — 2.42x is still a real, reportable
-disparity, not zero — but honestly, measurably better, with an
-automated test guarding against it regressing back.
-
-## Two validated extensions, beyond the primary fraud-risk build
-
-Fraud-risk is where this submission's real depth lives — see "Does the
-methodology hold up on real data" and the calibration/fairness sections
-below, all of which are specifically about that one model. Intent-match,
-the abuse-ring sentinel, and the fraud-spike detector are genuine,
-separately-tested extensions on top of it, not three more attempts at
-the same depth — each has its own held-out precision/recall against
-real injected ground truth, at a lighter (but real) standard
-proportionate to their role. See docs/ARCHITECTURE.md "Problem Taste"
-and "Build Quality" for the full reasoning on why these, specifically,
-and why they're genuinely different problem shapes from per-transaction
-scoring, not just "more of the same thing."
-
-### Abuse-ring sentinel (`src/ring_detector.py`)
-
-Fraud-risk and intent-match both look at ONE transaction at a time. An
-abuse ring — multiple accounts coordinating, not one bad actor acting
-alone — is invisible to that. This is a relational/graph problem:
-transactions are linked if they share a pincode, both come from fresh
-agents (<10 days old), and land within a tight real time window
-(<90 minutes) of each other — union-find over that rule finds
-connected clusters of size 3+.
-
-Validated against injected ground truth (15 real rings, deliberately
-designed with moderate, plausible-looking individual attributes, so a
-per-transaction model shouldn't reliably catch them alone):
-**precision 0.923, recall 1.0, 15/15 rings fully recovered.** More
-honestly: tested the false-positive rate on data with ZERO injected
-rings — 0.07% (3 of 4000 honest transactions), confirming the detector
-isn't just recovering its own injection logic.
-
-### Fraud-spike detector (`src/spike_detector.py`)
-
-A third, genuinely different shape again — time-series anomaly
-detection, not classification. Buckets transactions into 2-hour
-windows, flags a bucket as anomalous if its fraud rate is far from the
-TYPICAL bucket's rate (median + 3 MADs — median/MAD chosen deliberately
-over mean/std, since a real spike would drag a mean-based baseline up
-too, partially hiding itself).
-
-Validated against 4 injected ground-truth spike windows:
-**precision 0.545, recall 0.545** — a real, honestly weaker result than
-the ring detector, from genuine noise in low-transaction-count time
-buckets. One reasoned adjustment (60-minute → 120-minute buckets, more
-data per bucket) measurably improved both numbers from 0.462/0.375 —
-reported as the actual size of that effect, not oversold.
-
-Both exposed live via `/detect_rings` and `/detect_spikes` on the API.
-
-## Does the methodology hold up on real data, not just our synthetic data?
-
-We can't get real Razorpay agent-transaction data — agentic checkout is
-brand new, that data doesn't exist yet. What we can do honestly:
-`src/real_data_validation.py` validates the same modeling methodology
-(regularized logistic regression, class-weight balancing, F2-optimized
-threshold, 5-fold cross-validation) against the ULB European Cardholders
-fraud dataset — 284,807 real transactions, real fraud labels, a genuinely
-realistic 0.173% fraud rate (not our necessarily-elevated synthetic rate).
-Result: AUC 0.972, catching 89% of real fraud with a 0.47% false-positive
-rate among legitimate transactions. This does NOT validate our specific
-synthetic features (device/IP, pincode — none of which exist in this
-dataset) — it validates that the modeling approach itself is sound
-practice on real-world-shaped, extremely imbalanced data, not something
-that only happens to work on data we designed ourselves. The raw dataset
-(~100MB) isn't committed to this repo — standard practice for large
-datasets — but the script documents exactly how to fetch it and reproduce
-this result.
-
-**Worth being direct about:** this is a well-studied public benchmark —
-published results with more complex models (gradient boosting, ensembles,
-SMOTE oversampling) report higher AUC and AUPRC on this same dataset.
-We're not claiming state-of-the-art. Chasing a higher number here would
-have meant abandoning the interpretable, auditable model family this
-whole project argues for in the first place (see "AI Judgment" in
-`docs/ARCHITECTURE.md`) — the point of this validation is that our
-*methodology* is sound on real data, not that it's optimal.
-
-**On the 11% of real fraud this misses:** at any real, large transaction
-volume, that's genuine absolute loss, not a rounding error, and it
-deserves to be stated plainly rather than softened. Three things are true
-about it at once: no fraud detector anywhere catches 100% of fraud,
-including Thirdwatch's; the threshold that produced this 88.8% recall is
-a tunable choice, not a ceiling — `src/cost_sensitivity.py` exists
-specifically to make that tradeoff curve visible so it can be set
-deliberately against real cost data, not left at whatever a proxy metric
-picked; and this model was never meant to be the only layer — see "How
-this fits with what Razorpay already has" above. A single model's recall
-number is one layer's contribution to a defended system, not the whole
-defense.
-
-## Cost at real scale (not just at 4,000 rows)
-
-Our fraud model's held-out test set (800 transactions, 29.5% fraud rate —
-elevated on purpose for a learnable synthetic signal, see note above), at
-the F2-optimized threshold (0.3, chosen because a missed fraud costs more
-than a delayed order), produces a false-positive rate of ~69% and a
-false-negative rate of ~8%. That FPR is a genuinely important finding, not
-a comfortable one: pure F2-optimization pushed the threshold to an
-operational extreme — catching 91% of fraud, but holding roughly two out
-of every three *good* transactions to do it. At Razorpay's real volume,
-that tradeoff would be indefensible as-is; a real deployment would need a
-cost-weighted objective (using actual rupee costs of a false positive vs.
-a false negative, not just a recall-favoring proxy metric like F2) to pick
-a threshold a business could actually live with — this is exactly why the
-cost-sensitivity table (`src/cost_sensitivity.py`) exists: to make that
-full tradeoff curve visible, rather than defending one single number.
-
-**We use two different thresholds on purpose, and label them separately:**
-`src/train_fraud_model.py` reports metrics at the F2-optimal threshold
-(0.3) — this is the honest, methodologically consistent number for
-evaluating the model itself. `src/gating.py` and `src/pipeline.py` (the
-live product, including the dashboard demo) instead gate at 0.5, a more
-business-realistic choice, because gating 75% of all transactions for
-review (what 0.3 does on our data) isn't something any real merchant
-would accept, and presenting the demo at a threshold nobody would
-actually deploy would be its own kind of dishonesty. Picking a
-production threshold is a business decision informed by real cost data —
-not a single metric-optimization output — and using two different,
-clearly-labeled numbers for two different purposes demonstrates that
-distinction rather than papering over it. This isn't a flaw we're
-hiding — it's *why* the deployment story below (shadow mode first)
-exists: a model like this needs to prove itself against real outcomes
-and a real cost model at real volume before any threshold, ours or a
-better one, is trusted to act autonomously on real money.
-
-## Who's accountable when an agent transaction goes wrong
-
-RiskGate scores and gates — it does not resolve the harder open question
-of liability: if an authorized agent buys the wrong thing, or a fraud
-model wrongly blocks a legitimate purchase, who's responsible — the
-agent's operator, the merchant, the bank, or Razorpay as the rail in the
-middle? That's a real, unsolved regulatory question this project doesn't
-attempt to answer, and shouldn't pretend to.
-
-## What we'd need from Razorpay to make this real
-
-- Real dispute/return outcome data (ours is synthetic, deliberately
-  elevated in signal strength to be learnable on a small dataset)
-- Real pincode-level and merchant-level historical risk data
-- Integration with actual agent-authorization scope objects (the kind
-  NPCI's UAP or AP2-style mandates would provide) — this prototype
-  conflates authorization scope with stated intent (`intent_max_price`
-  plays both roles); a real system would keep them genuinely separate.
-  See SPEC.md's "named simplification" note for the full reasoning.
-- A live shadow-mode deployment window to validate precision/recall
-  against real outcomes before any autonomous gating is trusted
+`docs/ARCHITECTURE.md` structures this same reasoning against the buildathon's own four judging criteria. `TESTING.md` has the complete, unfiltered bug log.
