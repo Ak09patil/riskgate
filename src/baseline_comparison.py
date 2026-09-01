@@ -52,12 +52,11 @@ print(f"Flags {baseline_pred.mean()*100:.1f}% of all transactions")
 # reported metrics, on the SAME test set ---
 FEATURES = FRAUD_FEATURES  # imported, not duplicated
 model = joblib.load(f"{BASE_DIR}/models/fraud_model.pkl")
-scaler = joblib.load(f"{BASE_DIR}/models/fraud_scaler.pkl")
-X_test_scaled = scaler.transform(test_df[FEATURES])
-y_proba = model.predict_proba(X_test_scaled)[:, 1]
+# Calibrated XGBoost does not require feature scaling.
+y_proba = model.predict_proba(test_df[FEATURES])[:, 1]
 model_pred = (y_proba >= 0.3).astype(int)
 
-print("\n=== MODEL: logistic regression, F2-optimal threshold (0.3) ===")
+print("\n=== MODEL: calibrated XGBoost, business threshold (0.3) ===")
 print(f"Precision: {precision_score(y_test, model_pred, zero_division=0):.3f}")
 print(f"Recall:    {recall_score(y_test, model_pred, zero_division=0):.3f}")
 print(f"F2:        {fbeta_score(y_test, model_pred, beta=2, zero_division=0):.3f}")

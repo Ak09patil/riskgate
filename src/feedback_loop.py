@@ -138,9 +138,13 @@ def simulate_retrain_with_feedback() -> dict:
     merged["is_fraud"] = merged["confirmed_fraud"].astype(int)
 
     from sklearn.model_selection import train_test_split
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.preprocessing import StandardScaler
+    from xgboost import XGBClassifier
     from sklearn.metrics import roc_auc_score
+    # NOTE: retrains XGBoost (matching the current production model type)
+    # rather than logistic regression, so this is an honest apples-to-
+    # apples "does retraining with feedback help THIS model" comparison,
+    # not conflated with a model-choice question (see
+    # model_complexity_comparison.py for that separate question).
 
     original_train, original_test = train_test_split(
         df, test_size=0.2, random_state=42, stratify=df["is_fraud"]
@@ -161,19 +165,23 @@ def simulate_retrain_with_feedback() -> dict:
     from pipeline import FRAUD_FEATURES
     FEATURES = FRAUD_FEATURES  # imported, not duplicated
 
-    scaler = StandardScaler()
-    X_train = scaler.fit_transform(augmented_train[FEATURES])
-    X_test = scaler.transform(original_test[FEATURES])
+    # Calibrated XGBoost does not require feature scaling.
+    X_train = augmented_train[FEATURES]
+    X_test = original_test[FEATURES]
 
-    retrained_model = LogisticRegression(class_weight="balanced", random_state=42, C=0.1, max_iter=1000)
+    pos_weight = (augmented_train["is_fraud"] == 0).sum() / max((augmented_train["is_fraud"] == 1).sum(), 1)
+    retrained_model = XGBClassifier(
+        n_estimators=300, max_depth=6, learning_rate=0.1,
+        scale_pos_weight=pos_weight, random_state=42,
+        eval_metric="logloss", n_jobs=-1
+    )
     retrained_model.fit(X_train, augmented_train["is_fraud"])
     retrained_auc = roc_auc_score(original_test["is_fraud"], retrained_model.predict_proba(X_test)[:, 1])
 
     original_model = joblib.load(f"{BASE_DIR}/models/fraud_model.pkl")
-    original_scaler = joblib.load(f"{BASE_DIR}/models/fraud_scaler.pkl")
     original_auc = roc_auc_score(
         original_test["is_fraud"],
-        original_model.predict_proba(original_scaler.transform(original_test[FEATURES]))[:, 1],
+        original_model.predict_proba(original_test[FEATURES])[:, 1],
     )
 
     return {

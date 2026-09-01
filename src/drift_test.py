@@ -80,7 +80,7 @@ if __name__ == "__main__":
     print("(original training fraud rate was 0.295 — note the shift)\n")
 
     fraud_model = joblib.load(f"{BASE_DIR}/models/fraud_model.pkl")
-    fraud_scaler = joblib.load(f"{BASE_DIR}/models/fraud_scaler.pkl")
+    # Calibrated XGBoost does not require feature scaling.
     lookup = joblib.load(f"{BASE_DIR}/models/pincode_rate_lookup.pkl")
     pincode_rate_map = lookup["pincode_rate_map"]
     global_fraud_rate = lookup["global_fraud_rate"]
@@ -97,9 +97,8 @@ if __name__ == "__main__":
 
     FEATURES = FRAUD_FEATURES  # imported, not duplicated
     X = drifted[FEATURES]
-    X_scaled = fraud_scaler.transform(X)
     y_true = drifted["is_fraud"]
-    y_proba = fraud_model.predict_proba(X_scaled)[:, 1]
+    y_proba = fraud_model.predict_proba(X)[:, 1]
     from pipeline import FRAUD_THRESHOLD
     y_pred = (y_proba >= FRAUD_THRESHOLD).astype(int)
 
