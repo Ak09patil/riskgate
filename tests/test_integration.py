@@ -482,12 +482,15 @@ class TestModelQualityFloor:
         from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES
         pincode_rate_map = train_df.groupby("pincode")["is_fraud"].mean()
         global_fraud_rate = train_df["is_fraud"].mean()
+        from pipeline import compute_shrunk_pincode_ring_rates
+        pincode_ring_rate_map, global_ring_rate = compute_shrunk_pincode_ring_rates(train_df)
         test_df = test_df.copy()
         test_df["is_cod"] = (test_df["payment_mode"] == "COD").astype(int)
         test_df["is_new_agent"] = (test_df["agent_age_days"] < NEW_AGENT_AGE_DAYS).astype(int)
         test_df["high_value"] = (test_df["order_value"] > HIGH_VALUE_THRESHOLD).astype(int)
         test_df["cod_and_high_value"] = test_df["is_cod"] * test_df["high_value"]
         test_df["pincode_return_rate"] = test_df["pincode"].map(pincode_rate_map).fillna(global_fraud_rate)
+        test_df["pincode_ring_rate"] = test_df["pincode"].map(pincode_ring_rate_map).fillna(global_ring_rate)
 
         model = joblib.load(f"{BASE_DIR}/models/fraud_model.pkl")
         # XGBoost (calibrated) doesn'"'"'t require feature scaling, unlike the
@@ -513,12 +516,15 @@ class TestModelQualityFloor:
         from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES
         pincode_rate_map = train_df.groupby("pincode")["is_fraud"].mean()
         global_fraud_rate = train_df["is_fraud"].mean()
+        from pipeline import compute_shrunk_pincode_ring_rates
+        pincode_ring_rate_map, global_ring_rate = compute_shrunk_pincode_ring_rates(train_df)
         test_df = test_df.copy()
         test_df["is_cod"] = (test_df["payment_mode"] == "COD").astype(int)
         test_df["is_new_agent"] = (test_df["agent_age_days"] < NEW_AGENT_AGE_DAYS).astype(int)
         test_df["high_value"] = (test_df["order_value"] > HIGH_VALUE_THRESHOLD).astype(int)
         test_df["cod_and_high_value"] = test_df["is_cod"] * test_df["high_value"]
         test_df["pincode_return_rate"] = test_df["pincode"].map(pincode_rate_map).fillna(global_fraud_rate)
+        test_df["pincode_ring_rate"] = test_df["pincode"].map(pincode_ring_rate_map).fillna(global_ring_rate)
 
         from sklearn.metrics import fbeta_score
         baseline_pred = (

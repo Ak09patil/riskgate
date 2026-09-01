@@ -40,12 +40,13 @@ from sklearn.svm import SVC
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 
-from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES, compute_shrunk_pincode_rates
+from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES, compute_shrunk_pincode_rates, compute_shrunk_pincode_ring_rates
 
 df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
 train_df, test_df = train_test_split(df, test_size=0.2, random_state=42, stratify=df["is_fraud"])
 
 pincode_rate_map, global_fraud_rate = compute_shrunk_pincode_rates(train_df)
+pincode_ring_rate_map, global_ring_rate = compute_shrunk_pincode_ring_rates(train_df)
 for d in (train_df, test_df):
     d["is_cod"] = (d["payment_mode"] == "COD").astype(int)
     d["is_new_agent"] = (d["agent_age_days"] < NEW_AGENT_AGE_DAYS).astype(int)
@@ -55,6 +56,8 @@ train_df = train_df.copy()
 test_df = test_df.copy()
 train_df["pincode_return_rate"] = train_df["pincode"].map(pincode_rate_map)
 test_df["pincode_return_rate"] = test_df["pincode"].map(pincode_rate_map).fillna(global_fraud_rate)
+train_df["pincode_ring_rate"] = train_df["pincode"].map(pincode_ring_rate_map)
+test_df["pincode_ring_rate"] = test_df["pincode"].map(pincode_ring_rate_map).fillna(global_ring_rate)
 
 X_train, y_train = train_df[FRAUD_FEATURES], train_df["is_fraud"]
 X_test, y_test = test_df[FRAUD_FEATURES], test_df["is_fraud"]

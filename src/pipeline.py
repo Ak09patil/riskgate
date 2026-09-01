@@ -72,7 +72,7 @@ FRAUD_BORDERLINE_BAND = 0.05
 TRUST_OVERRIDE_HISTORY_THRESHOLD = 0.8
 
 FRAUD_FEATURES = [
-    "device_ip_consistency", "is_cod", "pincode_return_rate",
+    "device_ip_consistency", "is_cod", "pincode_return_rate", "pincode_ring_rate",
     "is_new_agent", "high_value", "cod_and_high_value", "agent_age_days",
     "order_value", "user_account_age_days",
 ]
@@ -116,17 +116,56 @@ def compute_shrunk_pincode_rates(train_df, shrinkage_k=PINCODE_SHRINKAGE_K):
     ) / (grouped["count"] + shrinkage_k)
     return shrunk_rate.to_dict(), global_fraud_rate
 
+
+def compute_shrunk_pincode_ring_rates(train_df, shrinkage_k=PINCODE_SHRINKAGE_K):
+    """
+    Same empirical-Bayes shrinkage as compute_shrunk_pincode_rates, but
+    for ring-involvement rate rather than raw fraud rate: what fraction
+    of a pincode's transactions have historically been part of a
+    detected coordinated-abuse ring (see ring_detector.py)?
+
+    This is deliberately the ONLY ring-detector signal folded into the
+    per-transaction fraud model as a feature. Ring involvement is a
+    static, location-level property that fits the same "historical
+    rate per pincode" shape pincode_return_rate already uses. Spike
+    detection is NOT folded in here, on purpose: a spike is fundamentally
+    about aggregate transaction RATE over a live time window, not a
+    per-location historical property — forcing it into a per-transaction
+    feature would blur what it's for (see spike_detector.py's docstring
+    on why this is a deliberately different problem shape). Spike
+    detection stays a separate batch-level monitoring layer.
+
+    Uses the SAME shrinkage_k as fraud-rate shrinkage, for the same
+    reason: don't fully trust a rate estimated from a handful of
+    transactions in a low-volume pincode.
+
+    Computed on train_df only — same no-leakage discipline as every
+    other pincode-level statistic in this project.
+    """
+    from ring_detector import detect_rings
+    ring_df = detect_rings(train_df)
+    ring_df = ring_df.copy()
+    ring_df["_is_ring"] = (ring_df["detected_ring_id"] >= 0).astype(int)
+
+    global_ring_rate = ring_df["_is_ring"].mean()
+    grouped = ring_df.groupby("pincode")["_is_ring"].agg(["mean", "count"])
+    shrunk_rate = (
+        grouped["count"] * grouped["mean"] + shrinkage_k * global_ring_rate
+    ) / (grouped["count"] + shrinkage_k)
+    return shrunk_rate.to_dict(), global_ring_rate
+
 _fraud_model = None
 _fraud_scaler = None
 _intent_model = None
 _intent_scaler = None
 _pincode_lookup = None
+_pincode_ring_lookup = None
 _intent_threshold = None
 
 
 def _load_artifacts():
     """Lazy-load all model artifacts once, shared across calls."""
-    global _fraud_model, _intent_model, _intent_scaler, _pincode_lookup, _intent_threshold
+    global _fraud_model, _intent_model, _intent_scaler, _pincode_lookup, _pincode_ring_lookup, _intent_threshold
     if _fraud_model is None:
         _fraud_model = joblib.load(f"{MODELS_DIR}/fraud_model.pkl")
         # Fraud model is now calibrated XGBoost, which does not require
@@ -135,6 +174,7 @@ def _load_artifacts():
         _intent_model = joblib.load(f"{MODELS_DIR}/intent_model.pkl")
         _intent_scaler = joblib.load(f"{MODELS_DIR}/intent_scaler.pkl")
         _pincode_lookup = joblib.load(f"{MODELS_DIR}/pincode_rate_lookup.pkl")
+        _pincode_ring_lookup = joblib.load(f"{MODELS_DIR}/pincode_ring_lookup.pkl")
         # Load INTENT_THRESHOLD from the training artifact instead of a
         # hardcoded copy — this is the actual fix for the staleness bug we
         # found (the hardcoded value silently drifted from the real
@@ -161,6 +201,8 @@ def score_transaction(txn: dict) -> dict:
     _load_artifacts()
     pincode_rate_map = _pincode_lookup["pincode_rate_map"]
     global_fraud_rate = _pincode_lookup["global_fraud_rate"]
+    pincode_ring_rate_map = _pincode_ring_lookup["pincode_ring_rate_map"]
+    global_ring_rate = _pincode_ring_lookup["global_ring_rate"]
 
     row = dict(txn)  # don't mutate caller's dict
     row["is_cod"] = int(row["payment_mode"] == "COD")
@@ -174,6 +216,7 @@ def score_transaction(txn: dict) -> dict:
     # of only inferring it indirectly from two separate weights.
     row["order_value"] = row["order_price"]
     row["pincode_return_rate"] = pincode_rate_map.get(row["pincode"], global_fraud_rate)
+    row["pincode_ring_rate"] = pincode_ring_rate_map.get(row["pincode"], global_ring_rate)
     row["price_delta_pct"] = max(
         0.0, (row["order_price"] - row["intent_max_price"]) / row["intent_max_price"]
     )

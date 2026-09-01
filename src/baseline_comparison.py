@@ -18,14 +18,16 @@ import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_score, recall_score, roc_auc_score, fbeta_score
 
-from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES, compute_shrunk_pincode_rates
+from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES, compute_shrunk_pincode_rates, compute_shrunk_pincode_ring_rates
 
 df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
 train_df, test_df = train_test_split(df, test_size=0.2, random_state=42, stratify=df["is_fraud"])
 
 pincode_rate_map, global_fraud_rate = compute_shrunk_pincode_rates(train_df)
+pincode_ring_rate_map, global_ring_rate = compute_shrunk_pincode_ring_rates(train_df)
 test_df = test_df.copy()
 test_df["pincode_return_rate"] = test_df["pincode"].map(pincode_rate_map).fillna(global_fraud_rate)
+test_df["pincode_ring_rate"] = test_df["pincode"].map(pincode_ring_rate_map).fillna(global_ring_rate)
 test_df["is_cod"] = (test_df["payment_mode"] == "COD").astype(int)
 test_df["is_new_agent"] = (test_df["agent_age_days"] < NEW_AGENT_AGE_DAYS).astype(int)
 test_df["high_value"] = (test_df["order_value"] > HIGH_VALUE_THRESHOLD).astype(int)

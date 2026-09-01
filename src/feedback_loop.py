@@ -157,10 +157,12 @@ def simulate_retrain_with_feedback() -> dict:
         d["is_new_agent"] = (d["agent_age_days"] < NEW_AGENT_AGE_DAYS).astype(int)
         d["high_value"] = (d["order_value"] > HIGH_VALUE_THRESHOLD).astype(int)
         d["cod_and_high_value"] = d["is_cod"] * d["high_value"]
-    from pipeline import compute_shrunk_pincode_rates
+    from pipeline import compute_shrunk_pincode_rates, compute_shrunk_pincode_ring_rates
     pincode_rate_map, global_rate = compute_shrunk_pincode_rates(augmented_train)
+    pincode_ring_rate_map, global_ring_rate = compute_shrunk_pincode_ring_rates(augmented_train)
     for d in (augmented_train, original_test):
         d["pincode_return_rate"] = d["pincode"].map(pincode_rate_map).fillna(global_rate)
+        d["pincode_ring_rate"] = d["pincode"].map(pincode_ring_rate_map).fillna(global_ring_rate)
 
     from pipeline import FRAUD_FEATURES
     FEATURES = FRAUD_FEATURES  # imported, not duplicated

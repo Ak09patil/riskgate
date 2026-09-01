@@ -48,7 +48,7 @@ import shap
 df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
 
 # --- feature engineering ---
-from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES, compute_shrunk_pincode_rates
+from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES, compute_shrunk_pincode_rates, compute_shrunk_pincode_ring_rates
 df["is_cod"] = (df["payment_mode"] == "COD").astype(int)
 df["is_new_agent"] = (df["agent_age_days"] < NEW_AGENT_AGE_DAYS).astype(int)
 df["high_value"] = (df["order_value"] > HIGH_VALUE_THRESHOLD).astype(int)
@@ -62,11 +62,16 @@ train_df, test_df = train_test_split(
 )
 
 pincode_rate_map, global_fraud_rate = compute_shrunk_pincode_rates(train_df)
+# Ring-rate map computed from train_df ONLY, same no-leakage discipline as
+# pincode_return_rate above. detect_rings() runs internally on train_df.
+pincode_ring_rate_map, global_ring_rate = compute_shrunk_pincode_ring_rates(train_df)
 
 train_df = train_df.copy()
 test_df = test_df.copy()
 train_df["pincode_return_rate"] = train_df["pincode"].map(pincode_rate_map)
 test_df["pincode_return_rate"] = test_df["pincode"].map(pincode_rate_map).fillna(global_fraud_rate)
+train_df["pincode_ring_rate"] = train_df["pincode"].map(pincode_ring_rate_map)
+test_df["pincode_ring_rate"] = test_df["pincode"].map(pincode_ring_rate_map).fillna(global_ring_rate)
 
 X_train, y_train = train_df[FEATURES], train_df["is_fraud"]
 X_test, y_test = test_df[FEATURES], test_df["is_fraud"]
@@ -159,5 +164,10 @@ joblib.dump(
     {"pincode_rate_map": pincode_rate_map, "global_fraud_rate": global_fraud_rate},
     f"{BASE_DIR}/models/pincode_rate_lookup.pkl",
 )
+joblib.dump(
+    {"pincode_ring_rate_map": pincode_ring_rate_map, "global_ring_rate": global_ring_rate},
+    f"{BASE_DIR}/models/pincode_ring_lookup.pkl",
+)
 print("Saved model to models/fraud_model.pkl")
 print("Saved pincode rate lookup to models/pincode_rate_lookup.pkl")
+print("Saved pincode ring-rate lookup to models/pincode_ring_lookup.pkl")

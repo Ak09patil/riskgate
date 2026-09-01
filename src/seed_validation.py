@@ -25,13 +25,14 @@ from sklearn.metrics import precision_score, recall_score, roc_auc_score
 
 df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
 
-from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES, compute_shrunk_pincode_rates
+from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES, compute_shrunk_pincode_rates, compute_shrunk_pincode_ring_rates
 FEATURES = FRAUD_FEATURES  # imported, not duplicated — see train_fraud_model.py
 
 results = []
 for seed in [42, 7, 123, 2026, 99]:
     train_df, test_df = train_test_split(df, test_size=0.2, random_state=seed, stratify=df["is_fraud"])
     pincode_rate_map, global_fraud_rate = compute_shrunk_pincode_rates(train_df)
+    pincode_ring_rate_map, global_ring_rate = compute_shrunk_pincode_ring_rates(train_df)
 
     train_df = train_df.copy()
     test_df = test_df.copy()
@@ -42,6 +43,8 @@ for seed in [42, 7, 123, 2026, 99]:
         d["cod_and_high_value"] = d["is_cod"] * d["high_value"]
     train_df["pincode_return_rate"] = train_df["pincode"].map(pincode_rate_map)
     test_df["pincode_return_rate"] = test_df["pincode"].map(pincode_rate_map).fillna(global_fraud_rate)
+    train_df["pincode_ring_rate"] = train_df["pincode"].map(pincode_ring_rate_map)
+    test_df["pincode_ring_rate"] = test_df["pincode"].map(pincode_ring_rate_map).fillna(global_ring_rate)
 
     X_train, y_train = train_df[FEATURES], train_df["is_fraud"]
     X_test, y_test = test_df[FEATURES], test_df["is_fraud"]

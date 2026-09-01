@@ -84,6 +84,9 @@ if __name__ == "__main__":
     lookup = joblib.load(f"{BASE_DIR}/models/pincode_rate_lookup.pkl")
     pincode_rate_map = lookup["pincode_rate_map"]
     global_fraud_rate = lookup["global_fraud_rate"]
+    ring_lookup = joblib.load(f"{BASE_DIR}/models/pincode_ring_lookup.pkl")
+    pincode_ring_rate_map = ring_lookup["pincode_ring_rate_map"]
+    global_ring_rate = ring_lookup["global_ring_rate"]
 
     drifted["is_cod"] = (drifted["payment_mode"] == "COD").astype(int)
     from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES
@@ -94,6 +97,11 @@ if __name__ == "__main__":
     # one fit on drifted data — this is the honest test: does the model,
     # as originally trained, still work on a shifted world?
     drifted["pincode_return_rate"] = drifted["pincode"].map(pincode_rate_map).fillna(global_fraud_rate)
+    # Drifted synthetic batch has no ring structure injected, so this will
+    # mostly fall back to global_ring_rate — included for feature-shape
+    # consistency with the trained model, not because drift_test.py tests
+    # ring detection itself.
+    drifted["pincode_ring_rate"] = drifted["pincode"].map(pincode_ring_rate_map).fillna(global_ring_rate)
 
     FEATURES = FRAUD_FEATURES  # imported, not duplicated
     X = drifted[FEATURES]
