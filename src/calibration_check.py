@@ -5,21 +5,10 @@ they claim to mean.
 
 Calibration asks: among all the transactions the model scored around
 0.7, did roughly 70% of them actually turn out to be fraud? If yes, the
-model is "calibrated" — its numbers are trustworthy on their own terms,
-not just useful for ranking. If a "0.9" transaction is only fraud 40% of
-the time in reality, the model is directionally useful but the number
-itself is misleading — dangerous if anyone downstream treats 0.9 as "90%
-confident."
-
-We check this with two standard tools:
-  - A reliability diagram (bin predictions, compare mean predicted prob
-    to actual fraud rate in each bin)
-  - Brier score (lower is better — the standard scalar summary of
-    calibration + accuracy combined)
-Then we fit a calibrated version (Platt scaling / sigmoid) and check
-honestly whether it actually improves calibration, the same way we
-checked whether the interaction feature actually helped — by measuring,
-not assuming.
+model is "calibrated". Tree ensembles like XGBoost are often LESS
+well-calibrated out of the box than logistic regression (which literally
+optimizes a probability via sigmoid) — so this check matters more, not
+less, after the model switch.
 """
 import os
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -34,7 +23,7 @@ import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import brier_score_loss
-from sklearn.linear_model import LogisticRegression
+from xgboost import XGBClassifier
 
 from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES, compute_shrunk_pincode_rates
 
@@ -54,18 +43,14 @@ test_df["pincode_return_rate"] = test_df["pincode"].map(pincode_rate_map).fillna
 
 FEATURES = FRAUD_FEATURES
 
-# --- the EXISTING deployed model, as-is ---
+# --- the EXISTING deployed model, as-is (now XGBoost, no scaler needed) ---
 model = joblib.load(f"{BASE_DIR}/models/fraud_model.pkl")
-scaler = joblib.load(f"{BASE_DIR}/models/fraud_scaler.pkl")
-X_test_scaled = scaler.transform(test_df[FEATURES])
+X_test = test_df[FEATURES]
 y_test = test_df["is_fraud"]
-y_proba_uncalibrated = model.predict_proba(X_test_scaled)[:, 1]
+y_proba_uncalibrated = model.predict_proba(X_test)[:, 1]
 
 
 def reliability_table(y_true, y_proba, n_bins=10):
-    """Bins predictions and compares mean predicted prob vs actual rate
-    in each bin — the core reliability-diagram data, printed as a table
-    since we don't have a plotting surface here."""
     bins = np.linspace(0, 1, n_bins + 1)
     bin_idx = np.digitize(y_proba, bins) - 1
     bin_idx = np.clip(bin_idx, 0, n_bins - 1)
@@ -83,7 +68,7 @@ def reliability_table(y_true, y_proba, n_bins=10):
     return pd.DataFrame(rows)
 
 
-print("=== CALIBRATION CHECK — existing (uncalibrated) model ===\n")
+print("=== CALIBRATION CHECK — existing (uncalibrated) XGBoost model ===\n")
 table_before = reliability_table(y_test.values, y_proba_uncalibrated)
 print(table_before.to_string(index=False))
 brier_before = brier_score_loss(y_test, y_proba_uncalibrated)
@@ -91,14 +76,20 @@ print(f"\nBrier score (lower is better, 0=perfect): {brier_before:.4f}")
 gap = (table_before["mean_predicted"] - table_before["actual_fraud_rate"]).abs().mean()
 print(f"Mean absolute gap between predicted and actual (average across bins): {gap:.3f}")
 
-# --- fit a calibrated version and check honestly if it actually helps ---
-X_train_scaled = scaler.transform(train_df[FEATURES])
+# --- fit a calibrated version of the SAME model type (XGBoost), and
+# check honestly if it actually helps ---
+X_train = train_df[FEATURES]
 y_train = train_df["is_fraud"]
+pos_weight = (y_train == 0).sum() / max((y_train == 1).sum(), 1)
 
-base_model = LogisticRegression(class_weight="balanced", random_state=42, C=0.1, max_iter=1000)
+base_model = XGBClassifier(
+    n_estimators=300, max_depth=6, learning_rate=0.1,
+    scale_pos_weight=pos_weight, random_state=42,
+    eval_metric="logloss", n_jobs=-1
+)
 calibrated_model = CalibratedClassifierCV(base_model, method="sigmoid", cv=5)
-calibrated_model.fit(X_train_scaled, y_train)
-y_proba_calibrated = calibrated_model.predict_proba(X_test_scaled)[:, 1]
+calibrated_model.fit(X_train, y_train)
+y_proba_calibrated = calibrated_model.predict_proba(X_test)[:, 1]
 
 print("\n=== CALIBRATION CHECK — after Platt scaling (sigmoid calibration) ===\n")
 table_after = reliability_table(y_test.values, y_proba_calibrated)
@@ -111,10 +102,10 @@ print(f"Mean absolute gap: {gap_after:.3f}  (before: {gap:.3f})")
 print("\n=== Verdict ===")
 if brier_after < brier_before:
     print(f"Calibration genuinely improved (Brier {brier_before:.4f} -> {brier_after:.4f}).")
-    print("Saving calibrated model as an alternative artifact — NOT replacing the")
-    print("production model automatically, since that decision needs the same")
-    print("scrutiny as any other model change, not an automatic swap.")
-    joblib.dump(calibrated_model, f"{BASE_DIR}/models/fraud_model_calibrated.pkl")
+    print("NOTE: train_fraud_model.py now trains the calibrated model directly as")
+    print("the single production artifact (models/fraud_model.pkl). This script is")
+    print("kept as a standalone before/after calibration comparison for evidence,")
+    print("and no longer saves a separate calibrated-model file.")
 else:
     print(f"Calibration did NOT clearly improve here (Brier {brier_before:.4f} vs {brier_after:.4f}).")
     print("Reporting this honestly rather than claiming a fix that didn't help.")

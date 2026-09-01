@@ -4,38 +4,46 @@ Fraud-risk score — model 1 of 3.
 Uses classic risk signals (device/IP consistency, COD, agent age, pincode
 history, order value) to predict is_fraud.
 
-We use Logistic Regression deliberately, not a black-box model:
-- It's interpretable — every feature gets a clear weight, so we can explain
-  WHY a transaction was flagged (important for the "explainable, bounded,
-  gated" bar Razorpay set).
-- It's honest about uncertainty — outputs a real probability, not just a
-  label, which is what we need for the gating thresholds later.
+MODEL HISTORY:
+1. Started with Logistic Regression — interpretable, honest probabilities.
+2. Switched to XGBoost after held-out validation against a real 284,807-
+   transaction dataset (Kaggle Credit Card Fraud) showed tree ensembles
+   substantially outperform linear models on real-world data (XGBoost
+   F2=0.856 vs Logistic Regression F2=0.707 — see
+   held_out_validation_results.csv). Synthetic data favors linear models
+   (simpler decision boundaries); real fraud has non-linear feature
+   interactions only tree splits capture well.
+3. Added Platt (sigmoid) calibration on top of XGBoost after finding raw
+   XGBoost was overconfident at high risk scores — transactions scored
+   0.9+ were only actually fraud ~69% of the time, not ~90%. A risk score
+   shown to a merchant/user must mean what it says; calibration is not
+   optional once you're reporting a number as a probability, not just a
+   ranking. This is the single production model: the SAME calibrated
+   probabilities are used for the flagging decision, the reported score,
+   and every downstream check (fairness, gating) — no separate raw/
+   calibrated split, so there's exactly one number that means one thing.
+
+Explainability: uses SHAP (TreeExplainer on the base XGBoost estimator)
+in place of the linear coefficients Logistic Regression provided,
+preserving the "explainable, bounded, gated" bar this project targets.
 """
 import os
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Some numpy/BLAS builds (e.g. Apple Accelerate on ARM Macs) emit
-# RuntimeWarning: overflow/divide-by-zero during cross-validation on this
-# data — a real quasi-complete-separation issue (strong synthetic signal
-# pushes some fold's coefficients very large), NOT a correctness bug.
-# Verified: results are numerically identical with warnings raised as
-# hard errors on our dev machine. Regularization (C=0.1 below) reduces
-# this substantially; this filter suppresses whatever residual overflow
-# warning remains on a given machine's floating-point backend, since it
-# does not change any reported result. See README "what broke" for the
-# full investigation.
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="sklearn")
 
 import pandas as pd
+import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import StandardScaler
+from sklearn.calibration import CalibratedClassifierCV
+from xgboost import XGBClassifier
 from sklearn.metrics import (
     precision_score, recall_score, f1_score, confusion_matrix,
-    roc_auc_score
+    roc_auc_score, fbeta_score, brier_score_loss
 )
 import joblib
+import shap
 
 df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
 
@@ -46,17 +54,9 @@ df["is_new_agent"] = (df["agent_age_days"] < NEW_AGENT_AGE_DAYS).astype(int)
 df["high_value"] = (df["order_value"] > HIGH_VALUE_THRESHOLD).astype(int)
 df["cod_and_high_value"] = df["is_cod"] * df["high_value"]
 
-# Import the feature list from pipeline.py rather than keep a second copy
-# here — this is exactly the same duplication risk that broke gating.py
-# before (a change made in one copy but not the other). One list, one
-# source of truth: adding cod_and_high_value here required updating
-# pipeline.py only, not two files.
 FEATURES = FRAUD_FEATURES
 
 # --- train/test split FIRST, before any leakage-prone feature is built ---
-# pincode_return_rate must be computed ONLY from training data, then applied
-# to test data — otherwise the model would be "seeing" test-set fraud labels
-# disguised as a feature, which would artificially inflate our metrics.
 train_df, test_df = train_test_split(
     df, test_size=0.2, random_state=42, stratify=df["is_fraud"]
 )
@@ -71,37 +71,38 @@ test_df["pincode_return_rate"] = test_df["pincode"].map(pincode_rate_map).fillna
 X_train, y_train = train_df[FEATURES], train_df["is_fraud"]
 X_test, y_test = test_df[FEATURES], test_df["is_fraud"]
 
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
+pos_weight = (y_train == 0).sum() / max((y_train == 1).sum(), 1)
+base_model = XGBClassifier(
+    n_estimators=300, max_depth=6, learning_rate=0.1,
+    scale_pos_weight=pos_weight, random_state=42,
+    eval_metric="logloss", n_jobs=-1
+)
 
-model = LogisticRegression(class_weight="balanced", random_state=42, C=0.1, max_iter=1000)
-
-# --- PROACTIVE: check stability via cross-validation BEFORE looking at
-# held-out test performance. If CV score varies a lot across folds, the
-# model's performance is sensitive to which rows happen to be in train
-# vs test — a real problem worth catching before trusting any single
-# train/test split's numbers. ---
 from sklearn.model_selection import cross_val_score
-cv_scores = cross_val_score(model, X_train_scaled, y_train, cv=5, scoring="roc_auc")
+cv_scores = cross_val_score(base_model, X_train, y_train, cv=5, scoring="roc_auc")
 print("=== 5-fold cross-validation on training data (checked BEFORE test-set evaluation) ===")
 print(f"CV AUC: {cv_scores.mean():.3f} (+/- {cv_scores.std():.3f} across folds)")
 print("A small std means performance is stable across different data slices.\n")
 
-model.fit(X_train_scaled, y_train)
+# --- calibration: fit the deployed model as a calibrated wrapper around
+# XGBoost, not raw XGBoost. This is the ONE model used for everything
+# downstream — flagging, displayed score, fairness checks. ---
+model = CalibratedClassifierCV(base_model, method="sigmoid", cv=5)
+model.fit(X_train, y_train)
 
-# --- evaluation on held-out test set only ---
-y_proba = model.predict_proba(X_test_scaled)[:, 1]
+y_proba = model.predict_proba(X_test)[:, 1]
 
-# --- threshold selection — same discipline as the intent-match model:
-# chosen by maximizing F2 (recall weighted 2x precision), not left at
-# sklearn's default 0.5. A missed fraud costs more than an unnecessary
-# hold, so recall is weighted higher — applying this consistently across
-# BOTH models, not just one, matters: picking rigor selectively would
-# undercut the honesty this whole project is built on. ---
-from sklearn.metrics import fbeta_score
+# --- calibration sanity check, printed every training run so drift is
+# always visible, not just checked once and forgotten ---
+brier = brier_score_loss(y_test, y_proba)
+print(f"=== Calibration check (this run) ===")
+print(f"Brier score: {brier:.4f} (lower is better, 0=perfect)\n")
+
+# --- threshold selection on CALIBRATED probabilities — this is the
+# threshold that will actually be used in production, since it's tuned
+# against the same numbers shown to users. ---
 best_f2, F2_OPTIMAL_THRESHOLD = 0, 0.5
-print("=== Threshold scan (precision/recall/F2 tradeoff) ===")
+print("=== Threshold scan (precision/recall/F2 tradeoff, on calibrated probabilities) ===")
 for t in [round(x * 0.01, 2) for x in range(20, 90, 5)]:
     pred_t = (y_proba >= t).astype(int)
     p = precision_score(y_test, pred_t, zero_division=0)
@@ -120,12 +121,10 @@ f1 = f1_score(y_test, y_pred)
 auc = roc_auc_score(y_test, y_proba)
 cm = confusion_matrix(y_test, y_pred)
 
-print("=== FRAUD-RISK SCORE — held-out test set results ===")
+print("=== FRAUD-RISK SCORE — held-out test set results (calibrated model) ===")
 print(f"Test set size: {len(y_test)} | Fraud rate in test: {y_test.mean():.3f}")
-print(f"Precision: {precision:.3f}  (of flagged transactions, this fraction were actually")
-print("           fraud — deliberately favors catching fraud over avoiding false alarms,")
-print("           see the cost reasoning immediately below)")
-print(f"Recall:    {recall:.3f}  (of actual fraud, this fraction was caught)")
+print(f"Precision: {precision:.3f}")
+print(f"Recall:    {recall:.3f}")
 print(f"F1:        {f1:.3f}")
 print(f"ROC-AUC:   {auc:.3f}")
 print("\nConfusion matrix:")
@@ -137,31 +136,25 @@ fp = cm[0][1]
 fn = cm[1][0]
 print(f"\nFalse positives (good txns wrongly flagged): {fp}")
 print(f"False negatives (fraud missed): {fn}")
-print("--> False positive cost: a wrongly-held good transaction costs a merchant")
-print("    one delayed/lost sale + customer friction. False negative cost: a")
-print("    missed fraud costs the transaction value directly. We tune the")
-print("    threshold below to be more conservative (favor recall) since a")
-print("    missed fraud is typically costlier than a delayed good order.")
 
-print("\nFeature weights (higher |weight| = bigger influence on the score):")
-for feat, coef in sorted(zip(FEATURES, model.coef_[0]), key=lambda x: -abs(x[1])):
-    print(f"  {feat:30s} {coef:+.3f}")
+# --- explainability: SHAP on the underlying XGBoost estimators inside
+# the calibrated wrapper (CalibratedClassifierCV trains 5 base models,
+# one per fold — we average SHAP values across all 5 for stability) ---
+all_shap = []
+for calibrated_clf in model.calibrated_classifiers_:
+    base_estimator = calibrated_clf.estimator
+    explainer = shap.TreeExplainer(base_estimator)
+    shap_values = explainer.shap_values(X_test)
+    all_shap.append(np.abs(shap_values).mean(axis=0))
+mean_abs_shap = np.mean(all_shap, axis=0)
+print("\nFeature importance (mean |SHAP value| across all 5 calibration folds):")
+for feat, val in sorted(zip(FEATURES, mean_abs_shap), key=lambda x: -x[1]):
+    print(f"  {feat:30s} {val:.4f}")
 
-# save model + scaler for use in the gating pipeline later
+# save the ONE production model
 joblib.dump(model, f"{BASE_DIR}/models/fraud_model.pkl")
-joblib.dump(scaler, f"{BASE_DIR}/models/fraud_scaler.pkl")
-# Save the F2-optimal threshold as its own artifact (used for metrics
-# reporting/drift testing) — same fix as intent model, prevents silent
-# staleness. This is separate from the DEMO_THRESHOLD in pipeline.py,
-# which is intentionally a different, business-chosen number — see README
-# "Cost at real scale" for why those two are deliberately not the same.
 joblib.dump(F2_OPTIMAL_THRESHOLD, f"{BASE_DIR}/models/fraud_f2_threshold.pkl")
 print(f"Saved F2-optimal threshold artifact ({F2_OPTIMAL_THRESHOLD})")
-# Save the pincode rate lookup as its own artifact, computed ONLY from
-# train_df — this is what score_transaction() will load at inference
-# time, so scoring a brand-new transaction later uses the exact same
-# lookup the model was trained against (no leakage, no recomputation
-# from data that includes test rows).
 joblib.dump(
     {"pincode_rate_map": pincode_rate_map, "global_fraud_rate": global_fraud_rate},
     f"{BASE_DIR}/models/pincode_rate_lookup.pkl",

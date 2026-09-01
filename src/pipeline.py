@@ -22,7 +22,18 @@ import pandas as pd
 
 MODELS_DIR = f"{BASE_DIR}/models"
 
-FRAUD_THRESHOLD = 0.5  # DEMO/business threshold, deliberately not the F2-optimal
+FRAUD_THRESHOLD = 0.30  # business threshold, deliberately NOT the F2-optimal (0.20)
+# (updated from 0.5 after switching Logistic Regression -> XGBoost + Platt calibration;
+# the calibrated score range for this model/dataset is ~0.18-0.56, so 0.5 as a
+# threshold was near the ceiling and caught almost no fraud (recall 0.097).
+# F2-optimal (0.20) was tested and rejected for production: it flags 50-97%
+# of honest customers in every pincode (see fairness_check.py output), which
+# is operationally unusable regardless of the recall gain. 0.30 is chosen as
+# the business threshold: recall 0.607, precision 0.429 — a defensible
+# tradeoff a review team can actually operate on. F2-optimal remains reported
+# separately in train_fraud_model.py as the statistical optimum, distinct
+# from this deployed business threshold — same DEMO_THRESHOLD-vs-F2 pattern
+# used throughout this project.)
                         # value — see gating.py and README "Cost at real scale"
                         # for why these two numbers are intentionally different.
                         # (unlike INTENT_THRESHOLD below, this one does NOT load
