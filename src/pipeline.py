@@ -57,6 +57,20 @@ HIGH_VALUE_THRESHOLD = 5000  # same fix, same reasoning
 # region existed at all.
 CIRCUIT_BREAKER_MAX_ORDER_VALUE = 25000
 
+# Bounded trust override — a borderline (not high) fraud score can be
+# routed to human-confirm instead of fraud-review IF the customer has
+# strong verified history AND this specific transaction shows no other
+# red flag. Deliberately narrow to resist trust-farming (build up
+# history, then exploit it): history alone is never sufficient — it
+# must be corroborated by device/IP consistency on THIS transaction,
+# and only applies in a narrow band just above threshold, never to
+# confidently-fraud scores. Band width (0.05) chosen from the training
+# threshold scan: precision/recall barely move across 0.30-0.35,
+# meaning this is a genuinely ambiguous region for the model, not one
+# where its verdict is confident enough to override outright.
+FRAUD_BORDERLINE_BAND = 0.05
+TRUST_OVERRIDE_HISTORY_THRESHOLD = 0.8
+
 FRAUD_FEATURES = [
     "device_ip_consistency", "is_cod", "pincode_return_rate",
     "is_new_agent", "high_value", "cod_and_high_value", "agent_age_days",
@@ -112,10 +126,12 @@ _intent_threshold = None
 
 def _load_artifacts():
     """Lazy-load all model artifacts once, shared across calls."""
-    global _fraud_model, _fraud_scaler, _intent_model, _intent_scaler, _pincode_lookup, _intent_threshold
+    global _fraud_model, _intent_model, _intent_scaler, _pincode_lookup, _intent_threshold
     if _fraud_model is None:
         _fraud_model = joblib.load(f"{MODELS_DIR}/fraud_model.pkl")
-        _fraud_scaler = joblib.load(f"{MODELS_DIR}/fraud_scaler.pkl")
+        # Fraud model is now calibrated XGBoost, which does not require
+        # feature scaling (unlike the earlier logistic regression model) —
+        # _fraud_scaler is no longer loaded or used.
         _intent_model = joblib.load(f"{MODELS_DIR}/intent_model.pkl")
         _intent_scaler = joblib.load(f"{MODELS_DIR}/intent_scaler.pkl")
         _pincode_lookup = joblib.load(f"{MODELS_DIR}/pincode_rate_lookup.pkl")
@@ -167,7 +183,7 @@ def score_transaction(txn: dict) -> dict:
 
     # --- fraud score ---
     X_fraud = pd.DataFrame([{k: row[k] for k in FRAUD_FEATURES}])
-    fraud_prob = float(_fraud_model.predict_proba(_fraud_scaler.transform(X_fraud))[0, 1])
+    fraud_prob = float(_fraud_model.predict_proba(X_fraud)[0, 1])
 
     # --- intent-match score ---
     X_intent = pd.DataFrame([{k: row[k] for k in INTENT_FEATURES}])
@@ -213,8 +229,30 @@ def score_transaction(txn: dict) -> dict:
                   f"(₹{CIRCUIT_BREAKER_MAX_ORDER_VALUE:,.0f}) — far outside anything the model "
                   f"was trained on, held for manual review regardless of model score.")
     elif fraud_prob >= FRAUD_THRESHOLD:
-        decision = "HOLD_FRAUD_REVIEW"
-        reason = f"Fraud-risk score {fraud_prob:.2f} exceeds threshold {FRAUD_THRESHOLD} — held for manual fraud review."
+        # Bounded trust override: only for a BORDERLINE score (within
+        # FRAUD_BORDERLINE_BAND above threshold — never a confidently-high
+        # score), and only when strong history is CORROBORATED by a clean
+        # signal on this specific transaction (device_ip_consistency). This
+        # two-factor requirement is deliberate: history alone would be a
+        # trust-farming vector (build up a track record, then exploit it
+        # on one transaction). Requiring both makes that attack harder —
+        # an attacker would need both a trusted history AND a
+        # device/IP-consistent transaction, not just one or the other.
+        history_rate = row.get("user_past_over_budget_kept_rate", 0)
+        is_borderline = fraud_prob < (FRAUD_THRESHOLD + FRAUD_BORDERLINE_BAND)
+        has_strong_history = history_rate >= TRUST_OVERRIDE_HISTORY_THRESHOLD
+        has_clean_signal = row.get("device_ip_consistency", 0) == 1
+
+        if is_borderline and has_strong_history and has_clean_signal:
+            decision = "HOLD_CONFIRM_WITH_HUMAN"
+            reason = (f"Fraud-risk score {fraud_prob:.2f} is borderline (within "
+                      f"{FRAUD_BORDERLINE_BAND} of threshold {FRAUD_THRESHOLD}), but strong "
+                      f"customer history ({history_rate:.2f}) and a clean device/IP signal "
+                      f"on this transaction downgrade this to human confirmation rather than "
+                      f"fraud review.")
+        else:
+            decision = "HOLD_FRAUD_REVIEW"
+            reason = f"Fraud-risk score {fraud_prob:.2f} exceeds threshold {FRAUD_THRESHOLD} — held for manual fraud review."
     elif intent_match_confidence >= _intent_threshold:
         decision = "AUTO_APPROVE"
         reason = f"Low fraud-risk ({fraud_prob:.2f}) and high intent-match confidence ({intent_match_confidence:.2f}) — auto-approved."

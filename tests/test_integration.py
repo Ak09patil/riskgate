@@ -346,14 +346,26 @@ class TestModelComplexityJustification:
             pytest.skip("xgboost could not run in this environment (not installed, or "
                         "native library failed to load — e.g. missing OpenMP/libomp on macOS)")
 
-        # "not measurably worse" — allow XGBoost some headroom before
-        # calling this a real problem, since exact numbers wobble a
-        # little run to run even with a fixed random_state across
-        # library versions
-        assert xgb_auc <= lr_auc + 0.03, (
-            f"XGBoost (AUC {xgb_auc:.3f}) now measurably beats logistic "
-            f"regression (AUC {lr_auc:.3f}) — the interpretability "
-            f"tradeoff should be revisited, not assumed to still hold."
+        # HISTORY: this test originally asserted the OPPOSITE — that
+        # XGBoost should NOT measurably beat logistic regression, as a
+        # guard to catch if that assumption stopped holding. It fired
+        # correctly: on held-out validation against a real 284,807-row
+        # dataset (Kaggle Credit Card Fraud), XGBoost measurably beat
+        # logistic regression (F2 0.856 vs 0.707 — see
+        # held_out_validation_results.csv), and we deliberately switched
+        # the production model as a result. This test now guards the
+        # OPPOSITE direction: if a future change makes XGBoost stop
+        # beating logistic regression on THIS (synthetic) dataset too,
+        # that is worth knowing, since our synthetic-data numbers already
+        # show XGBoost underperforming logistic regression here (AUC
+        # ~0.655 vs ~0.697) — a widening or reversing gap either way is
+        # signal, not noise, and worth a human looking at it again.
+        gap = lr_auc - xgb_auc
+        assert gap < 0.15, (
+            f"Logistic regression (AUC {lr_auc:.3f}) now beats XGBoost "
+            f"(AUC {xgb_auc:.3f}) by more than expected on synthetic data "
+            f"(gap {gap:.3f}) — worth checking this is still consistent "
+            f"with the real-data validation story before trusting it."
         )
 
 
@@ -379,12 +391,14 @@ class TestModelQualityFloor:
         test_df["pincode_return_rate"] = test_df["pincode"].map(pincode_rate_map).fillna(global_fraud_rate)
 
         model = joblib.load(f"{BASE_DIR}/models/fraud_model.pkl")
-        scaler = joblib.load(f"{BASE_DIR}/models/fraud_scaler.pkl")
-        y_proba = model.predict_proba(scaler.transform(test_df[FRAUD_FEATURES]))[:, 1]
+        # XGBoost (calibrated) doesn'"'"'t require feature scaling, unlike the
+        # earlier logistic regression model — scaler.transform() removed.
+        y_proba = model.predict_proba(test_df[FRAUD_FEATURES])[:, 1]
         auc = roc_auc_score(test_df["is_fraud"], y_proba)
 
-        MINIMUM_ACCEPTABLE_AUC = 0.65  # our real result is ~0.73 — this floor
-                                        # only fires on genuine regression
+        MINIMUM_ACCEPTABLE_AUC = 0.65  # real result now ~0.678 (calibrated
+                                        # XGBoost) — this floor only fires on
+                                        # genuine regression
         assert auc >= MINIMUM_ACCEPTABLE_AUC, \
             f"Fraud model AUC ({auc:.3f}) dropped below the regression floor " \
             f"({MINIMUM_ACCEPTABLE_AUC}) — this is a real quality regression, not noise."
@@ -416,8 +430,8 @@ class TestModelQualityFloor:
         baseline_f2 = fbeta_score(test_df["is_fraud"], baseline_pred, beta=2, zero_division=0)
 
         model = joblib.load(f"{BASE_DIR}/models/fraud_model.pkl")
-        scaler = joblib.load(f"{BASE_DIR}/models/fraud_scaler.pkl")
-        y_proba = model.predict_proba(scaler.transform(test_df[FRAUD_FEATURES]))[:, 1]
+        # Calibrated XGBoost does not require feature scaling.
+        y_proba = model.predict_proba(test_df[FRAUD_FEATURES])[:, 1]
         model_pred = (y_proba >= 0.3).astype(int)
         model_f2 = fbeta_score(test_df["is_fraud"], model_pred, beta=2, zero_division=0)
 

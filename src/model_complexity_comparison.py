@@ -63,9 +63,22 @@ FRAUD_THRESHOLD_FOR_F2 = 0.25  # matches the currently saved F2-optimal threshol
 
 
 def evaluate_logistic_regression():
-    model = joblib.load(f"{BASE_DIR}/models/fraud_model.pkl")
-    scaler = joblib.load(f"{BASE_DIR}/models/fraud_scaler.pkl")
-    proba = model.predict_proba(scaler.transform(X_test))[:, 1]
+    # NOTE: this now trains a FRESH logistic regression model, rather
+    # than loading models/fraud_model.pkl — that file now holds the
+    # production model (calibrated XGBoost) after the model switch, so
+    # loading it here would silently compare XGBoost against itself
+    # under the wrong label. Training fresh, with the same
+    # hyperparameters the original production model used, keeps this
+    # comparison honest and reproducible regardless of what the
+    # currently-deployed model is.
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+    model = LogisticRegression(class_weight="balanced", random_state=42, C=0.1, max_iter=1000)
+    model.fit(X_train_scaled, y_train)
+    proba = model.predict_proba(X_test_scaled)[:, 1]
     auc = roc_auc_score(y_test, proba)
     pred = (proba >= FRAUD_THRESHOLD_FOR_F2).astype(int)
     f2 = fbeta_score(y_test, pred, beta=2)
@@ -121,7 +134,7 @@ if __name__ == "__main__":
     print("data, features, and held-out test set — see module docstring)\n")
 
     lr_auc, lr_f2 = evaluate_logistic_regression()
-    print(f"Logistic Regression (current production model): AUC={lr_auc:.3f}, F2={lr_f2:.3f}")
+    print(f"Logistic Regression (original model, retrained fresh for comparison): AUC={lr_auc:.3f}, F2={lr_f2:.3f}")
 
     xgb_auc, xgb_f2, xgb_cv, importances = evaluate_xgboost()
     if xgb_auc is None:
