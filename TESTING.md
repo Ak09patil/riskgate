@@ -10,7 +10,7 @@ Two tiers, both run automatically on every push via GitHub Actions
 (`.github/workflows/tests.yml`) — see the badge at the top of the README
 for live status.
 
-**`tests/test_core.py`** — 13 unit tests on individual functions:
+**`tests/test_core.py`** — 17 unit tests on individual functions:
 score_transaction() always returns a valid decision and in-range
 probabilities, a clean transaction is never flagged, a high-risk
 transaction is always flagged, the cold-start fix (new users get
@@ -18,7 +18,7 @@ neutral preference-fit, not penalized) as a regression test, intent-
 match correctly detects category mismatches, the shopping agent returns
 real catalog items and respects budget, and scoring is deterministic.
 
-**`tests/test_integration.py`** — 18 tests on components working
+**`tests/test_integration.py`** — 19 tests on components working
 together, not in isolation:
 - The exact seam between the shopping agent and RiskGate (agent's
   output must be directly consumable by score_transaction())
@@ -38,6 +38,10 @@ together, not in isolation:
   worse" than XGBoost — see model_complexity_comparison.py; if a
   future change made XGBoost genuinely better, this is designed to
   surface that as a real tradeoff to revisit, not stay silently stale
+- Two regression guards on the broader, seven-model comparison (see
+  full_model_comparison.py) — one on F2 (the metric that actually
+  drives real threshold decisions), one on AUC relative to normal
+  seed-to-seed noise
 - A model-quality regression floor: asserts the fraud model's AUC
   doesn't silently degrade below 0.65 (our real result is ~0.73) if a
   future change breaks something the printed-output rigor scripts alone
@@ -45,7 +49,7 @@ together, not in isolation:
 - A regression guard that the model must keep beating the naive
   baseline rule, not just print that it currently does
 
-31 tests total, run with: `pytest tests/ -v`
+36 tests total, run with: `pytest tests/ -v`
 
 ## 2. Manual verification scripts (rigor checks, not pass/fail)
 

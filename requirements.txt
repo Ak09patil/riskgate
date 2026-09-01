@@ -7,3 +7,4 @@ flask-cors
 anthropic
 pytest
 xgboost
+lightgbm

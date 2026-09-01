@@ -151,7 +151,7 @@
     </div>
 
     <div class="stage" id="stage-product">
-      <div class="chat-bubble">Found a match within your budget and usual fit.</div>
+      <div class="chat-bubble" id="product-found-message">Found a match.</div>
       <div class="product-card" id="product-card">
         <div class="product-thumb"></div>
         <div class="product-info">
@@ -160,7 +160,12 @@
           <div class="rule" id="product-rule"></div>
         </div>
       </div>
+      <div class="explanation-card" id="pre-decision-note" style="display:none;"></div>
       <button class="btn primary" id="confirm-btn">Confirm purchase</button>
+      <div class="gate-actions" id="pre-decision-actions" style="display:none;">
+        <button class="btn primary" id="gate-proceed-btn-early">Go ahead anyway</button>
+        <button class="btn ghost" id="gate-cancel-btn-early">Cancel this order</button>
+      </div>
     </div>
 
     <div class="stage" id="stage-gate">
@@ -266,6 +271,53 @@ document.getElementById('submit-intent-btn').addEventListener('click', async () 
     document.getElementById('product-name').textContent = liveResult.proposed_product;
     document.getElementById('product-price').textContent = `₹${liveResult.order_price.toLocaleString('en-IN')}`;
     document.getElementById('product-rule').textContent = `matched: ${liveResult.matched_rule.replace(/_/g,' ')}`;
+    // The message here used to be a static "within your budget" line
+    // regardless of what actually happened — a real bug: when the
+    // agent's real match was over_budget_closest_available, the UI
+    // still claimed it was in-budget. Now it reflects the real result.
+    const foundMsg = document.getElementById('product-found-message');
+    if (liveResult.matched_rule === 'over_budget_closest_available') {
+      foundMsg.textContent = "Nothing matched your exact budget — here's the closest option.";
+    } else {
+      foundMsg.textContent = 'Found a match within your budget and usual fit.';
+    }
+
+    // RiskGate has ALREADY scored this by the time we're showing the
+    // product — /full_loop proposes AND scores in one call. Previously
+    // this screen hid that and made the customer click a generic
+    // "Confirm purchase" blindly, THEN showed a second, different
+    // decision screen with the real reasoning — two decisions where
+    // there should be one, and the first one carried no risk context
+    // at all. Fixed: show the right context and the right buttons on
+    // THIS single screen, immediately, based on the decision we
+    // already have.
+    const preNote = document.getElementById('pre-decision-note');
+    const preActions = document.getElementById('pre-decision-actions');
+    const confirmBtn = document.getElementById('confirm-btn');
+    const decision = liveResult.decision;
+
+    if (decision === 'HOLD_FRAUD_REVIEW') {
+      // no button to click through — a fraud hold needs analyst
+      // review, not customer self-confirm, so we go straight there
+      confirmBtn.style.display = 'none';
+      preActions.style.display = 'none';
+      preNote.style.display = 'block';
+      preNote.className = 'explanation-card held';
+      preNote.innerHTML = '<span class="why-title">Before you confirm</span>This order needs a quick safety check first — a routine step, not an accusation.';
+      setTimeout(() => routeByDecision(), 1400);
+    } else if (decision === 'HOLD_CONFIRM_WITH_HUMAN' || decision === 'HOLD_LIKELY_MISMATCH') {
+      confirmBtn.style.display = 'none';
+      preActions.style.display = 'flex';
+      preNote.style.display = 'block';
+      preNote.className = 'explanation-card held';
+      preNote.innerHTML = decision === 'HOLD_CONFIRM_WITH_HUMAN'
+        ? '<span class="why-title">Before you confirm</span>This went a bit outside your usual budget for this category — but it matches things you\'ve bought before.'
+        : '<span class="why-title">Before you confirm</span>This doesn\'t quite match what you originally asked for (budget, size, or category).';
+    } else {
+      confirmBtn.style.display = 'block';
+      preActions.style.display = 'none';
+      preNote.style.display = 'none';
+    }
   } else {
     document.getElementById('product-name').textContent = 'No live result — start python3 src/api.py first';
     document.getElementById('product-price').textContent = '';
@@ -276,6 +328,10 @@ document.getElementById('submit-intent-btn').addEventListener('click', async () 
 document.getElementById('confirm-btn').addEventListener('click', async () => {
   await sleep(500); // brief pause so the flow doesn't feel instant/fake
   routeByDecision();
+});
+document.getElementById('gate-proceed-btn-early').addEventListener('click', finalizeOrder);
+document.getElementById('gate-cancel-btn-early').addEventListener('click', () => {
+  showStage('stage-cancelled');
 });
 
 // Routes to genuinely different behavior per decision — not the same

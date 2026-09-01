@@ -83,6 +83,29 @@ class TestScoreTransaction:
         ))
         assert result["decision"] == "HOLD_FRAUD_REVIEW"
 
+    def test_circuit_breaker_holds_wildly_out_of_distribution_order_value(self):
+        """Regression test for a real bug found through actual device
+        testing: a ₹4,00,000 grocery order — with otherwise CLEAN
+        signals (consistent device, prepaid, established account) —
+        sailed through as AUTO_APPROVE, because nothing that large
+        exists anywhere in the training data (max ever seen: ~₹12,306).
+        The circuit breaker holds anything beyond a hard cap regardless
+        of what the model's score says, since the model has no real
+        basis for an opinion that far outside anything it was trained
+        on. This transaction would otherwise auto-approve on every
+        other signal — the circuit breaker is the ONLY thing catching it."""
+        result = score_transaction(make_txn(
+            order_price=400000, device_ip_consistency=1,
+            payment_mode="prepaid", agent_age_days=500,
+            user_account_age_days=800,
+        ))
+        assert result["decision"] == "HOLD_FRAUD_REVIEW"
+        assert "circuit-breaker" in result["reason"].lower()
+
+    def test_circuit_breaker_does_not_affect_normal_transactions(self):
+        result = score_transaction(make_txn(order_price=2499))
+        assert "circuit-breaker" not in result["reason"].lower()
+
     def test_new_user_gets_neutral_preference_fit_not_penalized(self):
         # regression test for the cold-start bug we found and fixed —
         # a new user (< 30 days) should get preference_fit_score == 0.5

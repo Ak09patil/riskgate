@@ -36,6 +36,16 @@ NEW_AGENT_AGE_DAYS = 15   # single source of truth — was previously duplicated
                           # only one place. Import this constant instead.
 HIGH_VALUE_THRESHOLD = 5000  # same fix, same reasoning
 
+# Circuit breaker — a hard business-rule cap alongside probabilistic
+# scoring, not instead of it (standard practice in real risk systems).
+# Set at ~2x the real maximum order_value ever seen in training
+# (₹12,306) — anything beyond this is genuinely out-of-distribution for
+# the model, not just "unusually high." Found the need for this
+# directly: a ₹4,00,000 grocery order sailed through as AUTO_APPROVE
+# during testing, since nothing in training ever taught the model that
+# region existed at all.
+CIRCUIT_BREAKER_MAX_ORDER_VALUE = 25000
+
 FRAUD_FEATURES = [
     "device_ip_consistency", "is_cod", "pincode_return_rate",
     "is_new_agent", "high_value", "cod_and_high_value", "agent_age_days",
@@ -174,7 +184,24 @@ def score_transaction(txn: dict) -> dict:
         pref_fit = round(min(row["user_past_over_budget_kept_rate"] * category_alignment, 1.0), 3)
 
     # --- gate ---
-    if fraud_prob >= FRAUD_THRESHOLD:
+    # Circuit breaker, checked FIRST, before any model score: our fraud
+    # model was never trained on anything above CIRCUIT_BREAKER_MAX_
+    # ORDER_VALUE (the real max ever seen in training was ~₹12,306).
+    # Trusting a model's score on a transaction far outside anything it
+    # has ever seen isn't a judgment call the model is equipped to make
+    # — this isn't second-guessing the model, it's covering the region
+    # where the model has no real basis for an opinion at all. Standard
+    # practice in real risk systems: a hard business-rule cap alongside
+    # probabilistic scoring, not instead of it. Found the need for this
+    # directly — a ₹4,00,000 "grocery" order sailed through as
+    # AUTO_APPROVE during testing, 30x beyond anything the model was
+    # ever trained to judge.
+    if row["order_price"] > CIRCUIT_BREAKER_MAX_ORDER_VALUE:
+        decision = "HOLD_FRAUD_REVIEW"
+        reason = (f"Order value ₹{row['order_price']:,.0f} exceeds the circuit-breaker cap "
+                  f"(₹{CIRCUIT_BREAKER_MAX_ORDER_VALUE:,.0f}) — far outside anything the model "
+                  f"was trained on, held for manual review regardless of model score.")
+    elif fraud_prob >= FRAUD_THRESHOLD:
         decision = "HOLD_FRAUD_REVIEW"
         reason = f"Fraud-risk score {fraud_prob:.2f} exceeds threshold {FRAUD_THRESHOLD} — held for manual fraud review."
     elif intent_match_confidence >= _intent_threshold:

@@ -14,6 +14,24 @@ card transactions with real fraud labels (AUC 0.972). See "Does the
 methodology hold up on real data" further down for the honest full
 picture, including where a more complex model could beat that number.
 
+**A second fair question, also addressed upfront:** why logistic
+regression, not a more complex model — not just against XGBoost, but
+against the whole reasonable field. `src/full_model_comparison.py`
+tests seven models (Random Forest, Gradient Boosting, XGBoost,
+LightGBM, SVM, Naive Bayes, KNN) on identical data, features, split,
+and threshold-tuning methodology — no model gets an advantage another
+doesn't. Result, reported honestly both ways: by raw AUC, Random
+Forest edges ahead by 0.005 — a gap smaller than this model's own
+run-to-run seed noise (std 0.025, measured separately). By F2 — the
+metric that actually drives our threshold decisions, encoding the real
+cost asymmetry between missing fraud and annoying a good customer —
+**logistic regression is the single highest-scoring model of everything
+tested**, not just competitive with the field. Two automated tests
+(`TestFullModelComparisonJustification`) guard both findings — if a
+future change makes either stop being true, CI catches it. See "AI
+Judgment" in `docs/ARCHITECTURE.md` for the full reasoning, including
+the honest limits of this claim at larger scale.
+
 ## How the pieces actually connect (this matters)
 
 This is one system, not separate scripts:

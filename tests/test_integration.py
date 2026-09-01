@@ -285,6 +285,40 @@ class TestFairnessImprovement:
         )
 
 
+class TestFullModelComparisonJustification:
+    def test_current_model_stays_among_the_best_by_f2(self):
+        """Regression guard for the broader claim (see
+        full_model_comparison.py): logistic regression isn't just
+        'not measurably worse than XGBoost' — tested against Random
+        Forest, Gradient Boosting, SVM, Naive Bayes, KNN, XGBoost, and
+        LightGBM, on identical data/features/split/methodology, it was
+        the single highest-F2 model of everything tested. This guards
+        against that regressing, not against every small fluctuation —
+        F2 differences under ~0.03 are within normal noise here."""
+        from full_model_comparison import run_comparison
+        results_df = run_comparison()
+        current = results_df[results_df["model"].str.contains("current production")].iloc[0]
+        best_f2 = results_df["f2"].max()
+        assert current["f2"] >= best_f2 - 0.03, (
+            f"Current production model's F2 ({current['f2']}) fell meaningfully behind the best "
+            f"tested alternative ({best_f2}) — the interpretability tradeoff should be revisited."
+        )
+
+    def test_auc_gap_against_best_alternative_stays_within_normal_seed_noise(self):
+        """AUC alone isn't the metric we optimize for (F2 is — see
+        README's cost-asymmetry reasoning), but guard against the gap
+        growing far beyond normal run-to-run noise (measured at
+        std=0.025 in seed_validation.py) regardless."""
+        from full_model_comparison import run_comparison
+        results_df = run_comparison()
+        current = results_df[results_df["model"].str.contains("current production")].iloc[0]
+        best_auc = results_df["auc"].max()
+        assert best_auc - current["auc"] < 0.05, (
+            f"Best alternative AUC ({best_auc}) now exceeds current production model "
+            f"({current['auc']}) by more than normal seed noise would explain."
+        )
+
+
 class TestModelComplexityJustification:
     def test_logistic_regression_is_not_measurably_worse_than_xgboost(self):
         """Regression guard for a real, tested claim (see
