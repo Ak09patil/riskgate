@@ -60,7 +60,7 @@ class TestFullLoopIntegration:
             "user_account_age_days": 400,
         }
         result = score_transaction(txn)
-        assert result["decision"] in {"AUTO_APPROVE", "HOLD_FRAUD_REVIEW",
+        assert result["decision"] in {"AUTO_APPROVE", "HOLD_FRAUD_REVIEW", "HOLD_QUICK_VERIFY",
                                        "HOLD_CONFIRM_WITH_HUMAN", "HOLD_LIKELY_MISMATCH"}
 
     def test_over_budget_proposal_with_good_history_routes_to_confirm(self):
@@ -124,13 +124,13 @@ class TestBoundedTrustOverride:
 
     def _make_txn(self, agent_age_days, device_ip_consistency,
                    user_past_over_budget_kept_rate, order_price,
-                   payment_mode, user_account_age_days):
+                   payment_mode, user_account_age_days, pincode="500011"):
         return {
             "order_price": order_price, "order_value": order_price,
             "order_category": "footwear", "order_key_attribute": "attr_2",
             "intent_category": "footwear", "intent_max_price": 6000,
             "intent_key_attribute": "attr_2",
-            "payment_mode": payment_mode, "pincode": "500011",
+            "payment_mode": payment_mode, "pincode": pincode,
             "agent_age_days": agent_age_days,
             "user_historical_category": "footwear",
             "user_past_over_budget_kept_rate": user_past_over_budget_kept_rate,
@@ -160,7 +160,13 @@ class TestBoundedTrustOverride:
         clean device/IP signal on this specific transaction, must NOT
         be enough to earn the override. This is the two-factor
         requirement's whole reason for existing - verified here with a
-        score confirmed to still land in the borderline band."""
+        score confirmed to still land in the ambiguous middle band.
+
+        NOTE (post two-tier threshold): without the override, this now
+        correctly routes to HOLD_QUICK_VERIFY (the default action for
+        the ambiguous band), not HOLD_FRAUD_REVIEW — the point being
+        tested is unchanged (the override doesn't fire without a clean
+        signal), only the non-override outcome's label changed."""
         from pipeline import score_transaction
         txn = self._make_txn(agent_age_days=100, device_ip_consistency=0,
                               user_past_over_budget_kept_rate=0.9,
@@ -172,23 +178,26 @@ class TestBoundedTrustOverride:
             f"in [0.30, 0.35), got {result['fraud_risk_score']} — this test "
             f"needs recalibrating if the model changed."
         )
-        assert result["decision"] == "HOLD_FRAUD_REVIEW"
+        assert result["decision"] == "HOLD_QUICK_VERIFY"
 
     def test_high_fraud_score_never_gets_override_regardless_of_history(self):
         """The override must be bounded to a narrow borderline band -
-        it must NEVER apply to a confidently-high fraud score, even
-        with a clean signal and strong history. This is what keeps the
-        override from becoming a general history-overrides-fraud
-        escape hatch."""
+        it must NEVER apply to a confidently-high (>= FRAUD_THRESHOLD_HIGH)
+        fraud score, even with a clean signal and strong history. This is
+        what keeps the override from becoming a general
+        history-overrides-fraud escape hatch, and is exactly the same
+        design principle the two-tier threshold itself relies on (see
+        pipeline.py's gating logic: the high-confidence band is a
+        separate branch that never even reaches the override check)."""
         from pipeline import score_transaction
-        txn = self._make_txn(agent_age_days=500, device_ip_consistency=1,
+        txn = self._make_txn(agent_age_days=10, device_ip_consistency=1,
                               user_past_over_budget_kept_rate=0.9,
-                              order_price=7000, payment_mode="COD",
-                              user_account_age_days=400)
+                              order_price=3000, payment_mode="COD",
+                              user_account_age_days=15, pincode="50006")
         result = score_transaction(txn)
-        assert result["fraud_risk_score"] >= 0.35, (
+        assert result["fraud_risk_score"] >= 0.45, (
             f"Test fixture assumption broken: expected a confidently-high "
-            f"score >= 0.35, got {result['fraud_risk_score']} — this test "
+            f"score >= 0.45, got {result['fraud_risk_score']} — this test "
             f"needs recalibrating if the model changed."
         )
         assert result["decision"] == "HOLD_FRAUD_REVIEW"

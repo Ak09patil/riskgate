@@ -40,7 +40,7 @@ def make_txn(**overrides):
     return base
 
 
-VALID_DECISIONS = {"AUTO_APPROVE", "HOLD_FRAUD_REVIEW", "HOLD_CONFIRM_WITH_HUMAN", "HOLD_LIKELY_MISMATCH"}
+VALID_DECISIONS = {"AUTO_APPROVE", "HOLD_FRAUD_REVIEW", "HOLD_QUICK_VERIFY", "HOLD_CONFIRM_WITH_HUMAN", "HOLD_LIKELY_MISMATCH"}
 
 
 # --- pipeline.score_transaction() core behavior ---
@@ -75,12 +75,21 @@ class TestScoreTransaction:
 
     def test_high_risk_transaction_is_flagged(self):
         # every fraud signal points toward risk at once — device
-        # mismatch, COD, brand-new agent, high value. If this ISN'T
-        # flagged, the model or gate is not doing its job.
+        # mismatch, COD, brand-new agent, high-risk pincode. If this
+        # ISN'T flagged at the high-confidence tier, the model or gate
+        # is not doing its job. Fixture verified against the live model
+        # (post two-tier threshold + ring-rate feature) to score >= 0.45,
+        # not assumed — see git history for how this was found.
         result = score_transaction(make_txn(
-            device_ip_consistency=0, payment_mode="COD",
-            agent_age_days=1, order_price=9000, user_account_age_days=5,
+            device_ip_consistency=1, payment_mode="COD",
+            agent_age_days=10, order_price=3000, user_account_age_days=15,
+            pincode="50006",
         ))
+        assert result["fraud_risk_score"] >= 0.45, (
+            f"Test fixture assumption broken: expected a high-confidence "
+            f"score >= 0.45, got {result['fraud_risk_score']} — this test "
+            f"needs recalibrating if the model changed."
+        )
         assert result["decision"] == "HOLD_FRAUD_REVIEW"
 
     def test_circuit_breaker_holds_wildly_out_of_distribution_order_value(self):

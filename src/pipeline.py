@@ -71,6 +71,19 @@ CIRCUIT_BREAKER_MAX_ORDER_VALUE = 25000
 FRAUD_BORDERLINE_BAND = 0.05
 TRUST_OVERRIDE_HISTORY_THRESHOLD = 0.8
 
+# Two-tier fraud threshold: reserves the costliest action (full manual
+# fraud review) for a genuinely high-confidence subset, and routes the
+# large ambiguous middle band to a cheaper action (e.g. a quick re-verify
+# step) instead. This is closer to how real risk systems (e.g.
+# Thirdwatch) actually operate than a single binary threshold — most
+# flagged transactions are NOT confidently fraud, so treating every flag
+# the same way (full manual review) wastes review-team capacity on
+# borderline cases that a lighter-weight check could resolve instead.
+# Value chosen from the threshold scan in train_fraud_model.py: 0.45 is
+# where precision crosses ~0.585, a meaningfully higher-confidence
+# operating point than the 0.429 precision at FRAUD_THRESHOLD (0.30).
+FRAUD_THRESHOLD_HIGH = 0.45
+
 FRAUD_FEATURES = [
     "device_ip_consistency", "is_cod", "pincode_return_rate", "pincode_ring_rate",
     "is_new_agent", "high_value", "cod_and_high_value", "agent_age_days",
@@ -271,16 +284,30 @@ def score_transaction(txn: dict) -> dict:
         reason = (f"Order value ₹{row['order_price']:,.0f} exceeds the circuit-breaker cap "
                   f"(₹{CIRCUIT_BREAKER_MAX_ORDER_VALUE:,.0f}) — far outside anything the model "
                   f"was trained on, held for manual review regardless of model score.")
+    elif fraud_prob >= FRAUD_THRESHOLD_HIGH:
+        # High-confidence band: never eligible for the trust override
+        # (see below) — a confidently-high fraud score always goes to
+        # full manual review regardless of history, by design. This is
+        # what keeps the two-tier system from becoming a general
+        # "history overrides fraud" escape hatch at the top end.
+        decision = "HOLD_FRAUD_REVIEW"
+        reason = (f"Fraud-risk score {fraud_prob:.2f} exceeds the high-confidence "
+                  f"threshold {FRAUD_THRESHOLD_HIGH} — held for manual fraud review.")
     elif fraud_prob >= FRAUD_THRESHOLD:
-        # Bounded trust override: only for a BORDERLINE score (within
-        # FRAUD_BORDERLINE_BAND above threshold — never a confidently-high
-        # score), and only when strong history is CORROBORATED by a clean
-        # signal on this specific transaction (device_ip_consistency). This
-        # two-factor requirement is deliberate: history alone would be a
-        # trust-farming vector (build up a track record, then exploit it
-        # on one transaction). Requiring both makes that attack harder —
-        # an attacker would need both a trusted history AND a
-        # device/IP-consistent transaction, not just one or the other.
+        # Ambiguous middle band [FRAUD_THRESHOLD, FRAUD_THRESHOLD_HIGH):
+        # not confidently fraud, but risky enough to act on. Default
+        # action here is a cheaper quick-verify step, not full manual
+        # review — reserving review-team capacity for the high-confidence
+        # band above. Bounded trust override: only for a BORDERLINE
+        # score (within FRAUD_BORDERLINE_BAND above threshold — never a
+        # confidently-high score), and only when strong history is
+        # CORROBORATED by a clean signal on this specific transaction
+        # (device_ip_consistency). This two-factor requirement is
+        # deliberate: history alone would be a trust-farming vector
+        # (build up a track record, then exploit it on one transaction).
+        # Requiring both makes that attack harder — an attacker would
+        # need both a trusted history AND a device/IP-consistent
+        # transaction, not just one or the other.
         history_rate = row.get("user_past_over_budget_kept_rate", 0)
         is_borderline = fraud_prob < (FRAUD_THRESHOLD + FRAUD_BORDERLINE_BAND)
         has_strong_history = history_rate >= TRUST_OVERRIDE_HISTORY_THRESHOLD
@@ -294,8 +321,11 @@ def score_transaction(txn: dict) -> dict:
                       f"on this transaction downgrade this to human confirmation rather than "
                       f"fraud review.")
         else:
-            decision = "HOLD_FRAUD_REVIEW"
-            reason = f"Fraud-risk score {fraud_prob:.2f} exceeds threshold {FRAUD_THRESHOLD} — held for manual fraud review."
+            decision = "HOLD_QUICK_VERIFY"
+            reason = (f"Fraud-risk score {fraud_prob:.2f} is in the ambiguous "
+                      f"[{FRAUD_THRESHOLD}, {FRAUD_THRESHOLD_HIGH}) band — not confidently "
+                      f"fraud, but risky enough to require a quick re-verification step "
+                      f"rather than a full manual fraud review.")
     elif intent_match_confidence >= _intent_threshold:
         decision = "AUTO_APPROVE"
         reason = f"Low fraud-risk ({fraud_prob:.2f}) and high intent-match confidence ({intent_match_confidence:.2f}) — auto-approved."
