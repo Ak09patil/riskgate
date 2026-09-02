@@ -31,11 +31,25 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, module="sklearn")
 
 import pandas as pd
 import joblib
+import threading
 from datetime import datetime, timezone
 
 from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD
 
 OUTCOMES_LOG = f"{BASE_DIR}/data/outcomes_log.csv"
+
+# Python-level lock, in addition to the OS-level file lock inside
+# record_outcome(). Found via real cross-platform testing: Windows'
+# msvcrt.locking() does not reliably block a SECOND file handle opened
+# by the SAME process (a well-documented Windows CRT quirk - a process
+# effectively can't lock against itself the way fcntl does on Unix).
+# Flask's dev server (threaded=True) handles concurrent requests as
+# threads within one process, which is exactly this scenario - so the
+# OS-level lock alone was silently losing data under concurrent writes
+# on Windows specifically, while passing fine on macOS/Linux. This lock
+# closes that gap on every platform for the same-process case; the
+# OS-level lock still covers genuine cross-process concurrency.
+_outcome_lock = threading.Lock()
 
 
 def record_outcome(order_id: str, confirmed_fraud: bool, analyst_note: str = "") -> None:
@@ -68,7 +82,7 @@ def record_outcome(order_id: str, confirmed_fraud: bool, analyst_note: str = "")
     else:
         import fcntl
 
-    with open(OUTCOMES_LOG, "a", newline="") as f:
+    with _outcome_lock, open(OUTCOMES_LOG, "a", newline="") as f:
         if is_windows:
             f.seek(0)
             msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
