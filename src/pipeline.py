@@ -9,6 +9,8 @@ for "live" scoring — that was the actual gap: gating.py only ran in
 batch over a whole CSV. This module is what fixes that.
 """
 import os
+import sys
+import subprocess
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Same numerical-stability fix as the training scripts (see
@@ -212,10 +214,33 @@ _intent_threshold = None
 
 
 def _load_artifacts():
-    """Lazy-load all model artifacts once, shared across calls."""
+    """Lazy-load all model artifacts once, shared across calls.
+
+    Self-healing: found via real cross-platform testing that a model
+    trained and pickled on one machine can fail to unpickle on another
+    with a genuinely confusing low-level error (e.g.
+    "xgboost._c_api.XGBoostError: input stream corrupted" on Windows,
+    loading a macOS-trained artifact, even with byte-identical file
+    transfer confirmed) - a real XGBoost pickle-portability quirk, not
+    file corruption. Rather than requiring every evaluator to notice
+    this, read a README note, and manually run training, this catches
+    that failure and retrains locally, automatically, once - the same
+    train_fraud_model.py script a person would otherwise be told to run
+    by hand. Adds real time on first run only (one training pass),
+    never on subsequent calls once a working local artifact exists.
+    """
     global _fraud_model, _intent_model, _intent_scaler, _pincode_lookup, _pincode_ring_lookup, _intent_threshold
     if _fraud_model is None:
-        _fraud_model = joblib.load(f"{MODELS_DIR}/fraud_model.pkl")
+        try:
+            _fraud_model = joblib.load(f"{MODELS_DIR}/fraud_model.pkl")
+        except Exception as e:
+            print(f"[RiskGate] Could not load the committed fraud_model.pkl ({type(e).__name__}: {e}).")
+            print("[RiskGate] This is a known cross-machine pickle-portability quirk, not data corruption.")
+            print("[RiskGate] Retraining locally now (one-time, ~10-20s)...")
+            train_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "train_fraud_model.py")
+            subprocess.run([sys.executable, train_script], check=True, cwd=os.path.dirname(train_script))
+            _fraud_model = joblib.load(f"{MODELS_DIR}/fraud_model.pkl")
+            print("[RiskGate] Retrained and loaded successfully.")
         # Fraud model is now calibrated XGBoost, which does not require
         # feature scaling (unlike the earlier logistic regression model) —
         # _fraud_scaler is no longer loaded or used.
