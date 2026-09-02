@@ -1,0 +1,16 @@
+# Binary files — never let Git touch these bytes (line-ending conversion,
+# text auto-detection) or they get silently corrupted on checkout. This
+# is exactly what happened on Windows: fraud_model.pkl loaded fine on
+# macOS but threw "input stream corrupted" on Windows, because Git's
+# default CRLF conversion mangled the pickle's raw binary content.
+*.pkl binary
+*.joblib binary
+*.npy binary
+*.npz binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mov binary
+*.mp4 binary
