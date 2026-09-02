@@ -157,8 +157,17 @@ def full_loop():
     }
     decision = score_transaction(txn)
 
+    # order_id and timestamp added specifically so the dashboard can carry
+    # ONE live transaction's identity through localStorage across pages
+    # (checkout -> dashboard), letting Consumer/Merchant/Razorpay/Fraud
+    # queue all show the SAME real transaction instead of independent
+    # random samples of static replay data.
+    import time as _time
+    from datetime import datetime as _datetime
     return jsonify({
         "status": "SCORED",
+        "order_id": f"live_{int(_time.time() * 1000)}",
+        "timestamp": _datetime.now().isoformat(),
         "intent": intent,
         "proposed_product": proposal["matched_product"],
         "matched_rule": proposal["matched_rule"],
@@ -166,6 +175,14 @@ def full_loop():
         "order_category": proposal["order_category"],
         "order_price": proposal["order_price"],
         "intent_max_price": intent["max_price"],
+        "pincode": txn["pincode"],
+        "payment_mode": txn["payment_mode"],
+        # Raw feature fields, added for the dashboard's Decision Trace -
+        # same fields as build_dashboard_data.py exports for replay data,
+        # so live and replay transactions have an identical shape.
+        "agent_age_days": txn["agent_age_days"],
+        "device_ip_consistency": txn["device_ip_consistency"],
+        "user_past_over_budget_kept_rate": txn["user_past_over_budget_kept_rate"],
         **decision,
     })
 

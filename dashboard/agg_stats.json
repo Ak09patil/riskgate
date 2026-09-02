@@ -1,13 +1,19 @@
 {
   "total_transactions": 4072,
   "decision_counts": {
-    "HOLD_FRAUD_REVIEW": 1704,
-    "AUTO_APPROVE": 1598,
-    "HOLD_LIKELY_MISMATCH": 504,
-    "HOLD_CONFIRM_WITH_HUMAN": 266
+    "HOLD_QUICK_VERIFY": 1450,
+    "AUTO_APPROVE": 1214,
+    "HOLD_FRAUD_REVIEW": 643,
+    "HOLD_LIKELY_MISMATCH": 392,
+    "HOLD_CONFIRM_WITH_HUMAN": 373
   },
-  "avg_fraud_risk": 0.471,
+  "avg_fraud_risk": 0.305,
   "avg_intent_match": 0.584,
   "intent_threshold": 0.6,
-  "fraud_threshold": 0.5
+  "fraud_threshold": 0.25,
+  "fraud_threshold_high": 0.45,
+  "circuit_breaker_max_order_value": 25000,
+  "fraud_borderline_band": 0.05,
+  "trust_override_history_threshold": 0.8,
+  "pref_fit_threshold": 0.5
 }

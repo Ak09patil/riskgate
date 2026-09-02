@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RiskGate</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+  :root {
+    --bg: #0a0d0c; --panel: #101413; --line: #1c211f; --line-bright: rgba(94,255,157,0.4);
+    --ink: #f2f1ea; --muted: #8f978f; --dim: #4c534e;
+    --go: #5eff9d; --go-glow: rgba(94,255,157,0.24); --go-dim: rgba(94,255,157,0.08);
+    --mono: 'JetBrains Mono', monospace; --display: 'Space Grotesk', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--display); overflow-x: hidden; position: relative; }
+  .glow-field { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+  .glow-orb { position: absolute; border-radius: 50%; filter: blur(90px); }
+  .glow-orb.o1 { width: 480px; height: 480px; background: var(--go); top: -120px; left: -100px; opacity: 0.12; }
+  .glow-orb.o2 { width: 380px; height: 380px; background: var(--go); top: 30%; right: -140px; opacity: 0.10; }
+  .glow-orb.o3 { width: 340px; height: 340px; background: #2fb8ff; bottom: -80px; left: 30%; opacity: 0.07; }
+  nav, .hero, .section, .final { position: relative; z-index: 1; }
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 40;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 24px 44px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand .mark { width: 18px; height: 18px; background: var(--go); border-radius: 4px; box-shadow: 0 0 12px var(--go-glow); }
+  .brand span { font-family: var(--mono); font-size: 13px; font-weight: 700; letter-spacing: 0.02em; }
+  .nav-right { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .nav-right a { color: var(--go); text-decoration: none; border: 1px solid var(--line-bright); padding: 9px 16px; border-radius: 3px; }
+  .hero {
+    min-height: 100vh; display: grid; grid-template-columns: 1.1fr 0.9fr; align-items: center;
+    padding: 120px 44px 60px; gap: 20px; position: relative;
+  }
+  .hero-left { position: relative; z-index: 2; }
+  .hero .tag {
+    font-family: var(--mono); font-size: 10.5px; color: var(--go); letter-spacing: 0.14em;
+    text-transform: uppercase; margin-bottom: 22px; display: inline-flex; align-items: center; gap: 8px;
+    border-left: 2px solid var(--go); padding-left: 10px;
+  }
+  .hero h1 {
+    font-size: 84px; line-height: 0.98; font-weight: 700; letter-spacing: -0.03em;
+    margin-bottom: 28px; max-width: 700px;
+  }
+  .hero h1 .go-text { color: var(--go); }
+  .hero p.sub { font-family: var(--mono); font-size: 12.5px; color: var(--muted); line-height: 1.8; max-width: 420px; margin-bottom: 34px; }
+  .stat-cycle {
+    min-height: 76px; margin-bottom: 30px; position: relative; max-width: 500px;
+    background: var(--panel); border: 1px solid var(--line-bright); border-radius: 8px;
+    padding: 16px 18px 16px 16px; box-shadow: 0 0 24px rgba(94,255,157,0.06);
+  }
+  .stat-cycle-inner { position: relative; min-height: 44px; padding-left: 26px; }
+  .stat-cycle-inner::before {
+    content: '\25c9'; position: absolute; left: 0; top: 1px; color: var(--go); font-size: 14px;
+    text-shadow: 0 0 8px var(--go-glow);
+  }
+  .stat-slide {
+    position: absolute; top: 0; left: 26px; right: 0; font-family: var(--mono); font-size: 13px; color: var(--ink);
+    opacity: 0; transform: translateY(8px); transition: opacity 0.5s ease, transform 0.5s ease;
+    line-height: 1.6;
+  }
+  .stat-slide.active { opacity: 1; transform: none; }
+  .stat-slide .stat-hl { color: var(--go); font-weight: 700; }
+  .stat-dots { display: flex; gap: 6px; margin-top: 12px; padding-left: 26px; }
+  .stat-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--line-bright); opacity: 0.4; transition: all 0.3s ease; }
+  .stat-dot.active { background: var(--go); opacity: 1; box-shadow: 0 0 6px var(--go-glow); width: 16px; border-radius: 3px; }
+  .cta {
+    font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
+    color: var(--bg); background: var(--go); border: none; padding: 15px 28px; border-radius: 4px;
+    text-decoration: none; display: inline-block; box-shadow: 0 0 26px var(--go-glow);
+  }
+  .cta:hover { transform: translateY(-2px); }
+  .flow-diagram {
+    position: relative; height: 460px; display: flex; flex-direction: column; justify-content: center; gap: 0;
+  }
+  .flow-node {
+    display: flex; align-items: center; gap: 14px; padding: 14px 0; opacity: 0.3;
+    transition: opacity 0.4s ease;
+  }
+  .flow-node.lit { opacity: 1; }
+  .flow-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--dim); flex-shrink: 0;
+    transition: all 0.4s ease;
+  }
+  .flow-node.lit .flow-dot { background: var(--go); box-shadow: 0 0 12px var(--go-glow); }
+  .flow-label { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .flow-node.lit .flow-label { color: var(--ink); }
+  .flow-line {
+    position: absolute; left: 4px; top: 20px; bottom: 20px; width: 1px; background: var(--line);
+  }
+  .flow-line-fill {
+    position: absolute; left: 0; top: 0; width: 100%; background: var(--go); height: 0%;
+    box-shadow: 0 0 8px var(--go-glow); transition: height 1.8s ease;
+  }
+  .hero-spacer { height: 8vh; }
+  .section { max-width: 1020px; margin: 0 auto; padding: 90px 44px; position: relative; }
+  .reveal { opacity: 0; transform: translateY(24px); transition: opacity 0.65s ease, transform 0.65s ease; }
+  .reveal.in-view { opacity: 1; transform: none; }
+  .section-label {
+    font-family: var(--mono); font-size: 10px; color: var(--dim); letter-spacing: 0.14em;
+    text-transform: uppercase; margin-bottom: 26px;
+  }
+  .feature-block { display: grid; grid-template-columns: 1fr 1fr; gap: 50px; align-items: start; padding: 44px 0; border-top: 1px solid var(--line); }
+  .feature-block:nth-child(even) .f-visual { order: 2; }
+  .f-title { font-size: 22px; font-weight: 600; margin-bottom: 12px; letter-spacing: -0.01em; }
+  .f-desc { font-family: var(--mono); font-size: 12px; color: var(--muted); line-height: 1.85; }
+  .f-stat { font-family: var(--mono); font-size: 36px; font-weight: 700; color: var(--go); margin-bottom: 6px; }
+  .f-visual {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 28px;
+    display: flex; flex-direction: column; justify-content: center; min-height: 140px;
+  }
+  .replay-box {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 34px;
+    margin-top: 10px;
+  }
+  .replay-head { font-family: var(--mono); font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 20px; }
+  .replay-txn { font-family: var(--mono); font-size: 12.5px; color: var(--muted); margin-bottom: 20px; }
+  .replay-row { display: grid; grid-template-columns: 170px 1fr 60px; align-items: center; gap: 14px; margin-bottom: 12px; font-family: var(--mono); font-size: 11.5px; }
+  .replay-track { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .replay-fill { height: 100%; background: var(--go); width: 0%; transition: width 1.2s cubic-bezier(.2,.9,.3,1); box-shadow: 0 0 8px var(--go-glow); }
+  .replay-result { margin-top: 22px; padding-top: 18px; border-top: 1px dashed var(--line); font-family: var(--mono); font-size: 12.5px; color: var(--muted); opacity: 0; transition: opacity 0.5s ease; }
+  .replay-result.show { opacity: 1; }
+  .replay-result .badge { color: var(--go); font-weight: 700; margin-right: 10px; }
+  .final { text-align: center; padding: 110px 44px; }
+  .final h2 { font-size: 30px; font-weight: 600; margin-bottom: 28px; }
+  .final h2 .go-text { color: var(--go); }
+  @media (max-width: 860px) {
+    .hero { grid-template-columns: 1fr; padding-top: 100px; }
+    .flow-diagram { height: 260px; margin-top: 30px; }
+    .hero h1 { font-size: 40px; line-height: 1.05; }
+    .feature-block, .feature-block:nth-child(even) { grid-template-columns: 1fr; }
+    .feature-block:nth-child(even) .f-visual { order: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="glow-field">
+  <div class="glow-orb o1"></div>
+  <div class="glow-orb o2"></div>
+  <div class="glow-orb o3"></div>
+</div>
+
+<nav>
+  <div class="brand"><span class="mark"></span><span>RISKGATE</span></div>
+  
+</nav>
+
+<section class="hero">
+  <div class="hero-left reveal in-view">
+    <div class="tag">agent-transaction risk layer</div>
+    <h1>The confirmation<br>moment is gone.<br><span class="go-text">This replaces it.</span></h1>
+    <p class="sub">An AI agent buys on someone's behalf — fully authorized, still capable of getting it wrong. RiskGate scores fraud-risk, intent-match, and preference-fit on every transaction, live.</p>
+    <div class="stat-cycle" id="stat-cycle">
+      <div class="stat-cycle-inner">
+        <div class="stat-slide active">We didn't guess the model. We tested it on <span class="stat-hl">284,807 real transactions</span> before trusting it.</div>
+        <div class="stat-slide">Every coordinated fraud ring we planted to test it? <span class="stat-hl">Caught. All 15.</span></div>
+        <div class="stat-slide">We asked if our fairness numbers were real, or just noise. <span class="stat-hl">They're noise</span> — and we can prove it.</div>
+        <div class="stat-slide"><span class="stat-hl">39 tests.</span> 3 caught real bugs before they ever shipped.</div>
+      </div>
+      <div class="stat-dots">
+        <div class="stat-dot active"></div><div class="stat-dot"></div><div class="stat-dot"></div><div class="stat-dot"></div>
+      </div>
+    </div>
+    <a class="cta" href="checkout.html">Start the demo &#9656;</a>
+  </div>
+  <div class="hero-right">
+    <div class="flow-diagram" id="flow-diagram">
+      <div class="flow-line"><div class="flow-line-fill" id="flow-line-fill"></div></div>
+      <div class="flow-node" data-i="0"><div class="flow-dot"></div><div class="flow-label">circuit breaker</div></div>
+      <div class="flow-node" data-i="1"><div class="flow-dot"></div><div class="flow-label">fraud threshold (0.45)</div></div>
+      <div class="flow-node" data-i="2"><div class="flow-dot"></div><div class="flow-label">trust override check</div></div>
+      <div class="flow-node" data-i="3"><div class="flow-dot"></div><div class="flow-label">intent-match check</div></div>
+      <div class="flow-node" data-i="4"><div class="flow-dot"></div><div class="flow-label">preference-fit check</div></div>
+      <div class="flow-node" data-i="5"><div class="flow-dot"></div><div class="flow-label" style="color:var(--go)">&#8594; decision</div></div>
+    </div>
+  </div>
+</section>
+<div class="hero-spacer"></div>
+
+<section class="section">
+  <div class="reveal">
+    <div class="section-label">// what makes this different</div>
+  </div>
+  <div class="feature-block reveal">
+    <div>
+      <div class="f-stat">F2 0.856</div>
+      <div class="f-title">Validated on real data, not just synthetic</div>
+      <div class="f-desc">Tested XGBoost against logistic regression on 284,807 real transactions (Kaggle Credit Card Fraud) before trusting the architecture for production — not assumed.</div>
+    </div>
+    <div class="f-visual">
+      <div style="font-family:var(--mono);font-size:11px;color:var(--dim);">vs logistic regression, real data</div>
+      <div style="font-family:var(--mono);font-size:20px;color:var(--muted);margin-top:6px;">F2 0.707</div>
+    </div>
+  </div>
+  <div class="feature-block reveal">
+    <div class="f-visual">
+      <div style="font-family:var(--mono);font-size:11px;color:var(--dim);">worst-case pincode disparity</div>
+      <div style="font-family:var(--mono);font-size:20px;color:var(--muted);margin-top:6px;">2.15x &mdash; noise, not confirmed bias</div>
+    </div>
+    <div>
+      <div class="f-stat">Audited</div>
+      <div class="f-title">Fairness checked with statistics, not assumed</div>
+      <div class="f-desc">Bootstrap confidence intervals on every geographic disparity &mdash; reported honestly as noise or a real bias, never treated as a settled fact by default.</div>
+    </div>
+  </div>
+  <div class="feature-block reveal">
+    <div>
+      <div class="f-stat">100%</div>
+      <div class="f-title">Coordinated abuse, actually caught</div>
+      <div class="f-desc">A union-find graph algorithm recovered all 15 injected coordinated-abuse rings in testing &mdash; 92.3% precision, not a plausible-looking heuristic.</div>
+    </div>
+    <div class="f-visual">
+      <div style="font-family:var(--mono);font-size:11px;color:var(--dim);">plus a third, independent layer</div>
+      <div style="font-family:var(--mono);font-size:14px;color:var(--muted);margin-top:6px;">time-bucketed spike detection for aggregate-rate anomalies</div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="reveal">
+    <div class="section-label">// watch it decide</div>
+    <div class="replay-box">
+      <div class="replay-head">live decision replay</div>
+      <div class="replay-txn" id="replay-txn">agent_39 &mdash; footwear, &#8377;2,499, matched exact attribute in budget</div>
+      <div class="replay-row"><div>fraud_risk_score</div><div class="replay-track"><div class="replay-fill" id="rf-fraud" style="background:#ff5c5c"></div></div><div id="rv-fraud">&mdash;</div></div>
+      <div class="replay-row"><div>intent_match_confidence</div><div class="replay-track"><div class="replay-fill" id="rf-intent"></div></div><div id="rv-intent">&mdash;</div></div>
+      <div class="replay-row"><div>preference_fit_score</div><div class="replay-track"><div class="replay-fill" id="rf-pref"></div></div><div id="rv-pref">&mdash;</div></div>
+      <div class="replay-result" id="replay-result"><span class="badge">QUICK VERIFY</span>Fraud-risk score 0.31 is in the ambiguous [0.25, 0.45) band &mdash; routed to a quick re-verification step instead of full manual review.</div>
+    </div>
+  </div>
+</section>
+
+<div class="final reveal">
+  <h2>See it <span class="go-text">decide</span>, live.</h2>
+  <a class="cta" href="checkout.html">Start the demo &#9656;</a>
+</div>
+
+<script>
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('in-view');
+        if (e.target.querySelector('.replay-box')) {
+          runReplay();
+        }
+      }
+    });
+  }, { threshold: 0.3 });
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+  function runFlow() {
+    const nodes = document.querySelectorAll('.flow-node');
+    const fill = document.getElementById('flow-line-fill');
+    nodes.forEach((n, i) => {
+      setTimeout(() => {
+        n.classList.add('lit');
+        fill.style.height = ((i + 1) / nodes.length * 100) + '%';
+      }, i * 450);
+    });
+  }
+  window.addEventListener('load', () => setTimeout(runFlow, 400));
+
+  const statSlides = document.querySelectorAll('.stat-slide');
+  const statDots = document.querySelectorAll('.stat-dot');
+  let statIdx = 0;
+  setInterval(() => {
+    statSlides[statIdx].classList.remove('active');
+    statDots[statIdx].classList.remove('active');
+    statIdx = (statIdx + 1) % statSlides.length;
+    statSlides[statIdx].classList.add('active');
+    statDots[statIdx].classList.add('active');
+  }, 2500);
+
+  let replayRan = false;
+  function runReplay() {
+    if (replayRan) return;
+    replayRan = true;
+    setTimeout(() => { document.getElementById('rf-fraud').style.width = '31%'; document.getElementById('rv-fraud').textContent = '0.309'; }, 300);
+    setTimeout(() => { document.getElementById('rf-intent').style.width = '72.3%'; document.getElementById('rv-intent').textContent = '0.723'; }, 900);
+    setTimeout(() => { document.getElementById('rf-pref').style.width = '70%'; document.getElementById('rv-pref').textContent = '0.700'; }, 1500);
+    setTimeout(() => { document.getElementById('replay-result').classList.add('show'); }, 2100);
+  }
+</script>
+</body>
+</html>

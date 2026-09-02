@@ -1,4 +1,6 @@
-<!DOCTYPE html>
+path = "landing.html"
+
+new_content = r'''<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -267,3 +269,9 @@
 </script>
 </body>
 </html>
+'''
+
+with open(path, "w") as f:
+    f.write(new_content)
+
+print("landing page rebuilt successfully")

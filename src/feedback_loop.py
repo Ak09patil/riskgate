@@ -43,29 +43,38 @@ def record_outcome(order_id: str, confirmed_fraud: bool, analyst_note: str = "")
     Log a real, human-confirmed outcome for a held transaction. This is
     what a fraud analyst clicking "Approve anyway" or "Reject" in the
     dashboard's Fraud queue would actually be doing in a real deployment
-    — the button already exists in the UI; this is what it would call.
+    - the button already exists in the UI; this is what it would call.
 
-    Uses a real file lock (fcntl), not just pandas' to_csv(mode="a").
-    Found via testing: concurrent writes (e.g. two analysts clicking
-    close together) could silently lose data — pandas checking "does the
-    file exist" then appending has a race window where two writers can
+    Uses a real file lock, not just pandas' to_csv(mode="a"). Found via
+    testing: concurrent writes (e.g. two analysts clicking close
+    together) could silently lose data - pandas checking "does the file
+    exist" then appending has a race window where two writers can
     interleave and clobber each other, even though both got a success
     response. The lock makes each write atomic relative to the others.
+
+    Cross-platform: fcntl.flock() (used originally) is Unix-only and
+    would hard-crash on Windows with no fallback - found and fixed
+    during cross-platform testing, not assumed. msvcrt.locking() is the
+    Windows equivalent, locking the file's first byte as a stand-in for
+    a whole-file exclusive lock (the same technique libraries like
+    portalocker use for portability). Append mode ('a') guarantees
+    writes land at end-of-file regardless of where we seek() to acquire
+    the lock, on both platforms.
     """
-    import fcntl
     import csv
+    is_windows = os.name == "nt"
+    if is_windows:
+        import msvcrt
+    else:
+        import fcntl
 
     with open(OUTCOMES_LOG, "a", newline="") as f:
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        if is_windows:
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         try:
-            # check emptiness AFTER acquiring the lock, not before — checking
-            # Check emptiness via the kernel's actual file size (fstat),
-            # not f.tell() — found via real testing on a second machine
-            # (macOS) that f.tell() right after opening in append mode
-            # isn't reliably 0-vs-nonzero across platforms, which let two
-            # threads both think the file was empty and both write a
-            # header row. fstat asks the OS directly, which is atomic
-            # and reliable under the lock we're already holding.
             is_empty = os.fstat(f.fileno()).st_size == 0
             writer = csv.writer(f)
             if is_empty:
@@ -77,7 +86,11 @@ def record_outcome(order_id: str, confirmed_fraud: bool, analyst_note: str = "")
             f.flush()
             os.fsync(f.fileno())
         finally:
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            if is_windows:
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 def evaluate_against_feedback() -> dict:

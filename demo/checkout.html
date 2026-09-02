@@ -129,7 +129,7 @@
       </div>
       <div class="field">
         <label>Max budget (₹)</label>
-        <input type="number" id="input-budget" value="4000" min="500" step="100">
+        <input type="number" id="input-budget" value="4000" min="500" max="100000" step="100">
       </div>
       <div class="field">
         <label>Preferred variant / attribute</label>
@@ -162,6 +162,7 @@
       </div>
       <div class="explanation-card" id="pre-decision-note" style="display:none;"></div>
       <button class="btn primary" id="confirm-btn">Confirm purchase</button>
+      <button class="btn ghost" id="clean-cancel-btn">Cancel this order</button>
       <div class="gate-actions" id="pre-decision-actions" style="display:none;">
         <button class="btn primary" id="gate-proceed-btn-early">Go ahead anyway</button>
         <button class="btn ghost" id="gate-cancel-btn-early">Cancel this order</button>
@@ -206,6 +207,54 @@
 </div>
 
 <script>
+// FRAUD_THRESHOLD mirrors pipeline.py's real value - used here only to
+// distinguish WHICH path led to HOLD_CONFIRM_WITH_HUMAN (trust override
+// vs pref-fit), not to make any gating decision itself.
+const FRAUD_THRESHOLD_FOR_MESSAGING = 0.25;
+
+function getHoldConfirmReason(liveResult) {
+  if (liveResult.fraud_risk_score >= FRAUD_THRESHOLD_FOR_MESSAGING) {
+    return "This order had a borderline risk score, but your account history and a clean device check let us skip straight to a quick confirmation instead of a full review.";
+  }
+  if (liveResult.matched_rule === 'over_budget_closest_available') {
+    return "This went a bit outside your usual budget for this category \u2014 but it matches things you\'ve bought before.";
+  }
+  if (liveResult.matched_rule === 'category_in_budget_attribute_mismatch') {
+    return "This wasn\'t quite the exact variant you asked for \u2014 but it matches things you\'ve bought before.";
+  }
+  return "This deviated a bit from what you originally asked for \u2014 but it matches things you\'ve bought before.";
+}
+
+function getMismatchReason(liveResult) {
+  if (liveResult.matched_rule === 'over_budget_closest_available') {
+    return "Heads up \u2014 this went further outside your budget than we\'d normally let through without checking, and it doesn\'t match your usual pattern either. We\'d recommend double-checking before this goes through.";
+  }
+  if (liveResult.matched_rule === 'category_in_budget_attribute_mismatch') {
+    return "Heads up \u2014 this isn\'t the variant you asked for, and it doesn\'t match your usual pattern either. We\'d recommend double-checking before this goes through.";
+  }
+  return "Heads up \u2014 this doesn\'t quite match what you originally asked for. We\'d recommend double-checking before this goes through.";
+}
+
+// Detect bfcache restoration (Safari/Chrome can serve an already-executed
+// page instead of truly reloading it on back/forward navigation, keeping
+// old JS variables like liveResult alive) and force a real reload so
+// every demo run starts from a genuinely clean state.
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) {
+    window.location.reload();
+  }
+});
+
+// Detect bfcache restoration (Safari/Chrome can serve an already-executed
+// page instead of truly reloading it on back/forward navigation, keeping
+// old JS variables like liveResult alive) and force a real reload so
+// every demo run starts from a genuinely clean state.
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) {
+    window.location.reload();
+  }
+});
+
 async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 let liveResult = null;
 let apiIsUp = false;
@@ -214,9 +263,12 @@ let apiIsUp = false;
 // reaches the real pipeline or falls back to a canned example
 async function checkApi() {
   try {
-    const res = await fetch('http://localhost:5050/full_loop', { signal: AbortSignal.timeout(1000) });
+    const res = await fetch('http://localhost:5050/full_loop', { signal: AbortSignal.timeout(3000) });
     apiIsUp = res.ok;
-  } catch (e) { apiIsUp = false; }
+  } catch (e) {
+    apiIsUp = false;
+    console.warn('[RiskGate demo] checkApi failed:', e.name, e.message);
+  }
 }
 checkApi();
 
@@ -226,13 +278,28 @@ async function fetchLive(intent) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(intent),
-      signal: AbortSignal.timeout(2000),
+      // Raised from 2000ms: the Flask dev server processes requests
+      // serially (Python's GIL, on CPU-bound model scoring - see
+      // load_test.py's documented finding), so under any concurrent
+      // load (e.g. multiple demo tabs open at once) a request can
+      // genuinely take longer than 2s without anything being wrong.
+      signal: AbortSignal.timeout(8000),
     });
     if (res.ok) {
       const json = await res.json();
       if (json.status === 'SCORED') return json;
+      console.warn('[RiskGate demo] fetchLive got 200 but status was not SCORED:', json);
+    } else {
+      // fetch() does NOT throw on HTTP error status codes (400/500) -
+      // only on network-level failures. This is the actual gap that
+      // let real backend errors silently return null with no log at
+      // all, even with try/catch in place.
+      const bodyText = await res.text().catch(() => '(could not read body)');
+      console.error('[RiskGate demo] fetchLive got a non-ok HTTP status:', res.status, res.statusText, bodyText);
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error('[RiskGate demo] fetchLive failed (network-level):', e.name, e.message, e);
+  }
   return null;
 }
 
@@ -243,7 +310,13 @@ function showStage(id) {
 
 document.getElementById('submit-intent-btn').addEventListener('click', async () => {
   const category = document.getElementById('input-category').value;
-  const maxPrice = parseFloat(document.getElementById('input-budget').value) || 4000;
+  const rawBudget = parseFloat(document.getElementById('input-budget').value) || 4000;
+  // Clamp defensively even if the input's max attribute gets bypassed
+  // (e.g. pasting a value directly) - the circuit breaker checks the
+  // AGENT'S PROPOSED order value, not this stated budget, so an absurd
+  // budget here wouldn't trigger it anyway; this cap is purely so the
+  // demo doesn't display a nonsensical number.
+  const maxPrice = Math.min(rawBudget, 100000);
   const attribute = document.getElementById('input-attribute').value;
 
   document.getElementById('user-request-bubble').textContent =
@@ -311,8 +384,8 @@ document.getElementById('submit-intent-btn').addEventListener('click', async () 
       preNote.style.display = 'block';
       preNote.className = 'explanation-card held';
       preNote.innerHTML = decision === 'HOLD_CONFIRM_WITH_HUMAN'
-        ? '<span class="why-title">Before you confirm</span>This went a bit outside your usual budget for this category — but it matches things you\'ve bought before.'
-        : '<span class="why-title">Before you confirm</span>This doesn\'t quite match what you originally asked for (budget, size, or category).';
+        ? '<span class="why-title">Before you confirm</span>' + getHoldConfirmReason(liveResult)
+        : '<span class="why-title">Before you confirm</span>' + getMismatchReason(liveResult);
     } else {
       confirmBtn.style.display = 'block';
       preActions.style.display = 'none';
@@ -329,8 +402,16 @@ document.getElementById('confirm-btn').addEventListener('click', async () => {
   await sleep(500); // brief pause so the flow doesn't feel instant/fake
   routeByDecision();
 });
+document.getElementById('clean-cancel-btn').addEventListener('click', () => {
+  // Cancel option for a clean/AUTO_APPROVE transaction too - a customer
+  // should always be able to back out, not just when the system flags
+  // something. Previously only HOLD_* decisions offered this.
+  setRiskGateLinks();
+  showStage('stage-cancelled');
+});
 document.getElementById('gate-proceed-btn-early').addEventListener('click', finalizeOrder);
 document.getElementById('gate-cancel-btn-early').addEventListener('click', () => {
+  setRiskGateLinks();
   showStage('stage-cancelled');
 });
 
@@ -363,10 +444,10 @@ function routeByDecision() {
   if (decision === 'AUTO_APPROVE') {
     finalizeOrder();
   } else if (decision === 'HOLD_CONFIRM_WITH_HUMAN') {
-    gateMessage.innerHTML = "This order went a bit outside your usual budget for this category — but it matches things you've bought before. Want to go ahead anyway?";
+    gateMessage.innerHTML = getHoldConfirmReason(liveResult) + " Want to go ahead anyway?";
     showStage('stage-gate');
   } else if (decision === 'HOLD_LIKELY_MISMATCH') {
-    gateMessage.innerHTML = "Heads up — this doesn't quite match what you originally asked for (budget, size, or category). We'd recommend double-checking before this goes through.";
+    gateMessage.innerHTML = getMismatchReason(liveResult);
     showStage('stage-gate');
   } else if (decision === 'HOLD_FRAUD_REVIEW') {
     // deliberately NOT a gate the customer can click through — a fraud
@@ -380,6 +461,7 @@ function routeByDecision() {
 
 document.getElementById('gate-proceed-btn').addEventListener('click', finalizeOrder);
 document.getElementById('gate-cancel-btn').addEventListener('click', () => {
+  setRiskGateLinks();
   showStage('stage-cancelled');
 });
 
