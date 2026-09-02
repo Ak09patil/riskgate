@@ -8,3 +8,5 @@ anthropic
 pytest
 xgboost
 lightgbm
+shap
+requests
