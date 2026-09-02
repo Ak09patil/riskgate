@@ -18,7 +18,7 @@ import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_score, recall_score, roc_auc_score, fbeta_score
 
-from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES, compute_shrunk_pincode_rates, compute_shrunk_pincode_ring_rates
+from pipeline import NEW_AGENT_AGE_DAYS, HIGH_VALUE_THRESHOLD, FRAUD_FEATURES, FRAUD_THRESHOLD, compute_shrunk_pincode_rates, compute_shrunk_pincode_ring_rates
 
 df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
 train_df, test_df = train_test_split(df, test_size=0.2, random_state=42, stratify=df["is_fraud"])
@@ -56,9 +56,9 @@ FEATURES = FRAUD_FEATURES  # imported, not duplicated
 model = joblib.load(f"{BASE_DIR}/models/fraud_model.pkl")
 # Calibrated XGBoost does not require feature scaling.
 y_proba = model.predict_proba(test_df[FEATURES])[:, 1]
-model_pred = (y_proba >= 0.3).astype(int)
+model_pred = (y_proba >= FRAUD_THRESHOLD).astype(int)  # imported, not hardcoded
 
-print("\n=== MODEL: calibrated XGBoost, business threshold (0.3) ===")
+print(f"\n=== MODEL: calibrated XGBoost, business threshold ({FRAUD_THRESHOLD}) ===")
 print(f"Precision: {precision_score(y_test, model_pred, zero_division=0):.3f}")
 print(f"Recall:    {recall_score(y_test, model_pred, zero_division=0):.3f}")
 print(f"F2:        {fbeta_score(y_test, model_pred, beta=2, zero_division=0):.3f}")

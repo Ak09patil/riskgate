@@ -22,18 +22,53 @@ import pandas as pd
 
 MODELS_DIR = f"{BASE_DIR}/models"
 
-FRAUD_THRESHOLD = 0.30  # business threshold, deliberately NOT the F2-optimal (0.20)
-# (updated from 0.5 after switching Logistic Regression -> XGBoost + Platt calibration;
-# the calibrated score range for this model/dataset is ~0.18-0.56, so 0.5 as a
-# threshold was near the ceiling and caught almost no fraud (recall 0.097).
-# F2-optimal (0.20) was tested and rejected for production: it flags 50-97%
-# of honest customers in every pincode (see fairness_check.py output), which
-# is operationally unusable regardless of the recall gain. 0.30 is chosen as
-# the business threshold: recall 0.607, precision 0.429 — a defensible
-# tradeoff a review team can actually operate on. F2-optimal remains reported
-# separately in train_fraud_model.py as the statistical optimum, distinct
-# from this deployed business threshold — same DEMO_THRESHOLD-vs-F2 pattern
-# used throughout this project.)
+FRAUD_THRESHOLD = 0.25  # recall-prioritized floor, chosen empirically (see below)
+# HISTORY: this was originally 0.30, deliberately NOT the F2-optimal
+# value (0.20), because at 0.20 the model flagged 50-97% of honest
+# customers in every pincode for FULL MANUAL FRAUD REVIEW — operationally
+# unusable regardless of the recall gain (see git history: threshold
+# moved 0.5 -> 0.30 for this exact reason).
+#
+# That objection no longer applies with the same force once the two-tier
+# threshold system existed (see FRAUD_THRESHOLD_HIGH below): anything
+# below FRAUD_THRESHOLD_HIGH now routes to HOLD_QUICK_VERIFY, a cheap
+# re-verification step, NOT full manual review. So the floor was
+# re-evaluated — recall matters more than precision for fraud
+# specifically (a missed fraud costs the full order value; a false hold
+# mostly costs friction, not revenue — see cost_sensitivity.py), which is
+# also why this project optimizes F2, not F1, throughout.
+#
+# We tested the full range and measured BOTH recall and per-pincode
+# fairness (via fairness_check.py's bootstrap confidence intervals) at
+# each point, rather than jumping straight to the F2-optimal extreme:
+#   0.30 (orig): recall 0.595, flag rate 43%, worst disparity 2.15x
+#   0.28:        recall 0.668, flag rate 50%, worst disparity 2.34x
+#   0.25 (here): recall 0.798, flag rate 64%, worst disparity 3.44x — CI
+#                width 0.312, NOT statistically distinguishable from noise
+#   0.24:        recall 0.834, flag rate 69%, worst disparity 3.59x — same
+#                CI width as 0.25, but higher flag rate for little extra
+#                recall gain: not a better trade
+#   0.23:        recall 0.866, flag rate 74%, worst disparity 4.06x — CI
+#                width narrowing (0.281), disparity story weakening
+#   0.20 (F2-opt): recall 0.955, flag rate 85%+, worst disparity 4.69x —
+#                CI width 0.156, this disparity IS statistically real,
+#                not noise. Also: flagging 85%+ of every pincode isn't
+#                targeted risk-based friction anymore, it's blanket
+#                friction on nearly all customers — even at a cheap
+#                per-transaction cost, that likely erodes trust in ways
+#                cost_sensitivity.py's abandonment-rate model doesn't
+#                capture. Rejected for the same operational reason 0.20
+#                was originally rejected, just a weaker version of it.
+#
+# 0.25 is the point that maximizes the recall gain (0.595 -> 0.798, a
+# genuinely large improvement) while keeping the fairness disparity
+# within noise, not a confirmed bias. This is an empirical choice, not a
+# default extreme — see docs for the full writeup.
+#
+# ASSUMPTION WORTH STATING EXPLICITLY: this relies on HOLD_QUICK_VERIFY
+# genuinely being cheap at volume (e.g. an OTP/re-confirm step) — if it
+# turns out to meaningfully burden customers or infrastructure at real
+# scale, that assumption needs revisiting, not treated as free by default.
                         # value — see gating.py and README "Cost at real scale"
                         # for why these two numbers are intentionally different.
                         # (unlike INTENT_THRESHOLD below, this one does NOT load
