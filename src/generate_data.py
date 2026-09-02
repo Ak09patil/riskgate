@@ -133,6 +133,12 @@ def gen_transaction(i):
         fraud_prob += 0.10  # value-proportional incentive
     if is_spike:
         fraud_prob += SPIKE_FRAUD_BOOST  # deliberate, ground-truth spike window
+    # NOTE: a non-linear interaction variant of this formula was tested
+    # and reverted — see docs/experiments/synthetic_interaction_experiment.md
+    # for the full writeup, results, and reasoning. Kept purely additive
+    # here, consistent with this project's stated principle that these
+    # coefficients are grounded in real-world reasoning chosen before
+    # seeing what metric they produce, not tuned post-hoc to a target.
     is_fraud = int(rng.random() < min(fraud_prob, 0.95))
 
     # --- preference-fit signal (heuristic, not a hard label) ---
