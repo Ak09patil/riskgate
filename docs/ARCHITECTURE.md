@@ -146,6 +146,7 @@ At threshold 0.20, the same fairness check gives a materially narrower CI (~0.16
 
 - The F2-optimal threshold on this data is 0.20, not 0.25. Not used in production: the resulting flag rate exceeds 85% in some pincodes — blanket friction, not targeted risk-based friction. The production system gates at a two-tier 0.25/0.45 split instead.
 - The synthetic fraud-probability formula's coefficients are grounded in cited, general fraud indicators, not empirically calibrated against real Razorpay data, which we do not have access to.
+- Production hyperparameters (n_estimators=300, max_depth=6, learning_rate=0.1) were chosen as reasonable defaults, not from a formal search - checked directly via a real grid search (hyperparameter_search.py), selected by cross-validation on the training split only. The best config found improves held-out test F2 by +0.0099 - smaller than the model's own measured seed-to-seed variance (Sec 3.1) - so the defaults were kept rather than switched for a statistically insignificant gain.
 
 ### 2.7 Latency and asynchronous design
 

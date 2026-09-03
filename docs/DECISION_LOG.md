@@ -166,6 +166,13 @@ Chronological record of engineering decisions, in the order they were made. Each
 
 ---
 
+## Phase 6a — Hyperparameter search
+
+**Trigger:** a direct question during external review - had the production XGBoost hyperparameters (n_estimators=300, max_depth=6, learning_rate=0.1) ever been formally searched over, or just chosen as reasonable defaults? Honest answer at the time: never searched.
+**Method:** hyperparameter_search.py - a 27-combination grid search (n_estimators in [100,300,500], max_depth in [3,6,9], learning_rate in [0.05,0.1,0.2]), selected by 5-fold F2 cross-validation on the training split only. Only after a winner was picked by CV were both the current production config and the best-found config evaluated on the untouched held-out test set, for an honest final comparison.
+**Finding:** the CV-selected best config (n_estimators=100, max_depth=3, learning_rate=0.05) improved held-out test F2 by +0.0099 over the current production config - smaller than the model's own measured seed-to-seed variance (Sec 3.1).
+**Decision:** kept the existing production hyperparameters rather than switching for a gain within noise - documented the search and its result rather than leaving the gap unaddressed or silently adopting a marginal, statistically insignificant change.
+
 ## Phase 6 — Documentation
 
 **Trigger:** README, SPEC, and ARCHITECTURE all significantly predated the Phase 2-5 work and described the logistic-regression-era system throughout.
