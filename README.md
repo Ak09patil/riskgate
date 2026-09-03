@@ -56,7 +56,7 @@ If the model fails to load on first run, it retrains itself automatically, once 
 ```
 python -m pytest tests -v
 ```
-39 tests, all passing, on both macOS and Windows — all run against mock transaction fixtures (`tests/test_core.py`, `tests/test_integration.py`), no real data or credentials required.
+43 tests, all passing, on both macOS and Windows — all run against mock transaction fixtures (`tests/test_core.py`, `tests/test_integration.py`), no real data or credentials required.
 
 ---
 ## Our principles
