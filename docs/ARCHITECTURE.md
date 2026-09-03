@@ -147,6 +147,33 @@ At threshold 0.20, the same fairness check gives a materially narrower CI (~0.16
 - The F2-optimal threshold on this data is 0.20, not 0.25. Not used in production: the resulting flag rate exceeds 85% in some pincodes — blanket friction, not targeted risk-based friction. The production system gates at a two-tier 0.25/0.45 split instead.
 - The synthetic fraud-probability formula's coefficients are grounded in cited, general fraud indicators, not empirically calibrated against real Razorpay data, which we do not have access to.
 
+### 2.7 Latency and asynchronous design
+
+RiskGate's core scoring path is synchronous and deliberately minimal: score_transaction() computes all three scores and the gating decision inline, within the same request that proposes the purchase — measured at **p50 57ms, ~168 req/s sustained** (load_test.py), a negligible addition to a typical payment flow. This is the part that genuinely must be in the critical path, since the gating decision itself has to exist before the transaction can proceed.
+
+Everything heavier is deliberately kept out of that path and runs asynchronously, offline, or on a separate schedule — not per-transaction:
+
+| Component | Runs | Why it is not in the live path |
+|---|---|---|
+| Ring detector (ring_detector.py) | Batch, over a recent window of transactions | Detecting a *coordinated* pattern requires seeing multiple transactions together — it is structurally not a single-transaction operation |
+| Spike detector (spike_detector.py) | Batch, over time-bucketed aggregate rates | Same reason — an aggregate-rate anomaly cannot be evaluated from one transaction in isolation |
+| Feedback loop (feedback_loop.py) | Triggered when a human confirms a real outcome, compared later against the original prediction | Real outcomes are known only after the fact, sometimes days later — this is inherently a delayed, offline comparison, not something a live request can wait for |
+| Pattern narrative LLM call (pattern_narrative.py) | On demand, when an analyst opens the fraud queue | Explicitly never touches the live scoring decision (Sec 3.5) — phrasing a batch of already-computed findings for a human reader has no reason to block a transaction |
+
+The two detectors' findings (a transaction belonging to a flagged ring, or occurring during a flagged spike window) are designed to feed back into future scoring as additional features — the same pattern pincode_ring_rate already uses (Sec 3.1) — rather than requiring a live call to either detector inside the transaction loop itself.
+
+### 2.8 False-positive cost, quantified
+
+A false positive here is a legitimate customer wrongly held or flagged — real revenue risk for Razorpay and the merchant, not just an abstract fairness concern. cost_sensitivity.py quantifies this directly at the production threshold, using this project's own synthetic order-value data (illustrative of the tradeoff's shape, not a claim about Razorpay's real transaction volume):
+
+| Threshold | Fraud loss prevented | False-hold revenue risk (false-positive cost) | Ratio |
+|---|---|---|---|
+| 0.25 (production) | Rs 98.09 Cr/day | Rs 12.74 Cr/day | ~7.7:1 |
+| 0.30 | Rs 75.84 Cr/day | Rs 8.09 Cr/day | ~9.4:1 |
+| 0.45 | Rs 27.30 Cr/day | Rs 1.54 Cr/day | ~17.8:1 |
+
+The ratio *improves* as the threshold rises (fewer, more confident holds mean less false-positive cost relative to fraud caught), which is expected — it is the same tradeoff the two-tier design (Sec 2.6) already encodes structurally: reserve the more expensive, more disruptive HOLD_FRAUD_REVIEW tier for the threshold band where confidence is highest, and route the ambiguous middle to a materially cheaper HOLD_QUICK_VERIFY step instead. The dashboard's Threshold Explorer exposes this same table live, at every measured threshold from 0.20 to 0.55.
+
 ---
 
 ## 3. AI Judgment

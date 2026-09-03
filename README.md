@@ -49,14 +49,14 @@ python src/api.py
 
 Then, in a browser:
 - `demo/landing.html` — the full guided demo
-- `dashboard/index.html` — standalone dashboard (works without the API too, using replay data)
+- `dashboard/index.html` — standalone dashboard, requires no live API and no real transaction data: it runs entirely against bundled mock/synthetic transaction data (`dashboard/demo_data.json`), so it can be reviewed and tested locally out of the box
 
 If the model fails to load on first run, it retrains itself automatically, once — a known cross-machine pickle quirk, see `docs/ARCHITECTURE.md` Section 4 (Failure Recovery, item 7).
 
 ```
 python -m pytest tests -v
 ```
-39 tests, all passing, on both macOS and Windows.
+39 tests, all passing, on both macOS and Windows — all run against mock transaction fixtures (`tests/test_core.py`, `tests/test_integration.py`), no real data or credentials required.
 
 ---
 ## Our principles

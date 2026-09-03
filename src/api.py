@@ -7,12 +7,15 @@ Run with: python3 src/api.py
 Then open dashboard/index.html with this server running.
 """
 import os
+import threading
+import time
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import random
+from datetime import datetime, timezone
 import pandas as pd
 from pipeline import score_transaction
 from shopping_agent import propose_purchase
@@ -203,16 +206,41 @@ def fraud_batch_narrative():
     return jsonify(result)
 
 
-@app.route("/detect_rings", methods=["GET"])
-def detect_rings_endpoint():
-    """
-    Abuse-ring sentinel — a genuinely different problem shape from the
-    two per-transaction scores (relational/graph detection, not
-    classification). See ring_detector.py for the full reasoning and
-    docs/ARCHITECTURE.md for why this specific linkage rule was chosen.
-    """
-    from ring_detector import detect_rings, validate_against_ground_truth
+# --- BACKGROUND BATCH DETECTION SCHEDULER ---
+# Real async design, not just an architectural claim: ring and spike
+# detection genuinely need to see MULTIPLE transactions together (a
+# coordinated ring, an aggregate-rate spike), so they were always
+# structurally separate from the live per-transaction scoring path
+# (see docs/ARCHITECTURE.md Section 2.7). What was still missing:
+# an actual automatic trigger, not just "these are separate scripts
+# you'd run manually." This background thread closes that gap - a
+# real, in-process scheduler, not a description of one.
+#
+# Deliberately NOT a job queue (Celery/RQ + a broker like Redis): at
+# this data volume, that would be real infrastructure complexity with
+# no corresponding benefit - an external dependency this repo would
+# then require anyone testing it locally to also set up. A daemon
+# thread on a fixed interval is the right-sized version of "runs
+# automatically, not on request" for a project this size; a queue-
+# based version is a natural next step once real transaction volume
+# exists to justify it.
+BATCH_DETECTION_INTERVAL_SECONDS = 300  # 5 minutes
+
+_batch_cache = {"rings": None, "spikes": None, "last_run": None}
+_batch_cache_lock = threading.Lock()
+
+
+def _run_batch_detection():
+    """Recomputes ring + spike detection and refreshes the cache both
+    endpoints below serve from. Runs once immediately on server start,
+    then automatically every BATCH_DETECTION_INTERVAL_SECONDS via the
+    background thread started in __main__ - never triggered by a
+    request."""
+    from ring_detector import detect_rings, validate_against_ground_truth as validate_rings
+    from spike_detector import detect_spikes, validate_against_ground_truth as validate_spikes
+
     df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
+
     result_df = detect_rings(df)
     detected = result_df[result_df["detected_ring_id"] >= 0]
     rings = []
@@ -223,28 +251,13 @@ def detect_rings_endpoint():
             "pincode": str(group["pincode"].iloc[0]),
             "order_ids": group["order_id"].tolist(),
         })
-    response = {"rings_detected": len(rings), "rings": rings}
-    # include validation metrics only if ground truth is present (real
-    # deployments wouldn't have this column — this is a demo/validation
-    # convenience, not something the live product depends on)
+    rings_response = {"rings_detected": len(rings), "rings": rings}
     if "true_ring_id" in df.columns:
-        response["validation_against_injected_ground_truth"] = validate_against_ground_truth(result_df)
-    return jsonify(response)
+        rings_response["validation_against_injected_ground_truth"] = validate_rings(result_df)
 
-
-@app.route("/detect_spikes", methods=["GET"])
-def detect_spikes_endpoint():
-    """
-    Fraud-spike detector — time-series anomaly detection over
-    aggregate transaction volume, a third distinct problem shape from
-    per-transaction scoring and relational ring detection. See
-    spike_detector.py for the full reasoning.
-    """
-    from spike_detector import detect_spikes, validate_against_ground_truth
-    df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
     bucket_stats = detect_spikes(df)
     flagged = bucket_stats[bucket_stats["detected_spike"]]
-    response = {
+    spikes_response = {
         "buckets_flagged": len(flagged),
         "flagged_windows": [
             {
@@ -257,7 +270,68 @@ def detect_spikes_endpoint():
         ],
     }
     if "true_spike_window" in df.columns:
-        response["validation_against_injected_ground_truth"] = validate_against_ground_truth(bucket_stats)
+        spikes_response["validation_against_injected_ground_truth"] = validate_spikes(bucket_stats)
+
+    with _batch_cache_lock:
+        _batch_cache["rings"] = rings_response
+        _batch_cache["spikes"] = spikes_response
+        _batch_cache["last_run"] = datetime.now(timezone.utc).isoformat()
+
+
+def _background_scheduler():
+    """Daemon thread: runs _run_batch_detection() once immediately,
+    then on a fixed interval, for as long as the API process is alive."""
+    while True:
+        try:
+            _run_batch_detection()
+        except Exception as e:
+            print(f"[RiskGate] Background batch detection failed: {e}")
+        time.sleep(BATCH_DETECTION_INTERVAL_SECONDS)
+
+
+@app.route("/detect_rings", methods=["GET"])
+def detect_rings_endpoint():
+    """
+    Abuse-ring sentinel — a genuinely different problem shape from the
+    two per-transaction scores (relational/graph detection, not
+    classification). Served from the background scheduler's cache
+    (refreshed automatically every BATCH_DETECTION_INTERVAL_SECONDS),
+    not recomputed per request. See ring_detector.py for the full
+    reasoning and docs/ARCHITECTURE.md for why this specific linkage
+    rule was chosen.
+    """
+    with _batch_cache_lock:
+        cached = _batch_cache["rings"]
+        last_run = _batch_cache["last_run"]
+    if cached is None:
+        _run_batch_detection()
+        with _batch_cache_lock:
+            cached = _batch_cache["rings"]
+            last_run = _batch_cache["last_run"]
+    response = dict(cached)
+    response["cache_last_refreshed"] = last_run
+    return jsonify(response)
+
+
+@app.route("/detect_spikes", methods=["GET"])
+def detect_spikes_endpoint():
+    """
+    Fraud-spike detector — time-series anomaly detection over
+    aggregate transaction volume, a third distinct problem shape from
+    per-transaction scoring and relational ring detection. Served from
+    the background scheduler's cache, not recomputed per request. See
+    spike_detector.py for the full reasoning.
+    """
+    with _batch_cache_lock:
+        cached = _batch_cache["spikes"]
+        last_run = _batch_cache["last_run"]
+    if cached is None:
+        _run_batch_detection()
+        with _batch_cache_lock:
+            cached = _batch_cache["spikes"]
+            last_run = _batch_cache["last_run"]
+    response = dict(cached)
+    response["cache_last_refreshed"] = last_run
     return jsonify(response)
 
 
@@ -289,7 +363,10 @@ def feedback_status():
 
 
 if __name__ == "__main__":
+    scheduler_thread = threading.Thread(target=_background_scheduler, daemon=True)
+    scheduler_thread.start()
     print("RiskGate live API running on http://localhost:5050")
+    print(f"  [background] ring/spike detection auto-refreshes every {BATCH_DETECTION_INTERVAL_SECONDS}s")
     print("  GET  /simulate               -> scores a random real transaction, live")
     print("  GET  /full_loop              -> shopping agent proposes + RiskGate scores, live")
     print("  POST /score                  -> scores a transaction you send in the body")

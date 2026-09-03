@@ -299,6 +299,59 @@ class TestAPIIntegration:
 # hunt — concurrent writes to the outcomes log silently lost data while
 # reporting success to every caller ---
 
+class TestBackgroundBatchDetection:
+    """Regression tests for the ring/spike detection background
+    scheduler (see api.py's _run_batch_detection / _background_scheduler).
+    Verified manually via curl during development, but everything else
+    in this project gets a real automated test guarding it - this
+    closes that gap rather than leaving this one feature only
+    manually checked."""
+
+    def test_detect_rings_endpoint_returns_valid_response(self, api_client):
+        resp = api_client.get("/detect_rings")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "rings_detected" in data
+        assert "rings" in data
+        assert "cache_last_refreshed" in data
+        assert data["cache_last_refreshed"] is not None
+
+    def test_detect_spikes_endpoint_returns_valid_response(self, api_client):
+        resp = api_client.get("/detect_spikes")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "buckets_flagged" in data
+        assert "flagged_windows" in data
+        assert "cache_last_refreshed" in data
+        assert data["cache_last_refreshed"] is not None
+
+    def test_cold_start_fallback_populates_cache(self, api_client):
+        """The first request can land before the background thread's
+        first scheduled run completes - the endpoint must still return
+        a valid, real result via the synchronous fallback, not an
+        error or an empty response."""
+        import api
+        with api._batch_cache_lock:
+            api._batch_cache["rings"] = None
+            api._batch_cache["spikes"] = None
+            api._batch_cache["last_run"] = None
+
+        resp = api_client.get("/detect_rings")
+        assert resp.status_code == 200
+        assert resp.get_json()["cache_last_refreshed"] is not None
+        with api._batch_cache_lock:
+            assert api._batch_cache["last_run"] is not None
+
+    def test_repeated_requests_are_served_from_cache_not_recomputed(self, api_client):
+        """Two requests close together should return the SAME
+        cache_last_refreshed timestamp - proof the second call was
+        served from the cache rather than triggering a fresh,
+        independent computation each time."""
+        first = api_client.get("/detect_rings").get_json()
+        second = api_client.get("/detect_rings").get_json()
+        assert first["cache_last_refreshed"] == second["cache_last_refreshed"]
+
+
 class TestConcurrentOutcomeRecording:
     def test_concurrent_writes_do_not_lose_data(self, api_client, tmp_path, monkeypatch):
         """Regression test for a real, serious bug: 5 simultaneous

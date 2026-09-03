@@ -155,6 +155,15 @@ enforced field. See Section 9.2.
 | Fairness | Empirical-Bayes shrinkage on pincode-level false-positive rates, plus a bootstrap 95% CI on every reported disparity - a raw ratio alone is not treated as sufficient evidence of bias |
 | Calibration | Brier score, before and after Platt scaling |
 
+**Confusion matrix** (fraud-risk model, held-out test set, 815 rows, 30.3% fraud rate):
+
+| | Predicted: Not Fraud | Predicted: Fraud |
+|---|---|---|
+| **Actual: Not Fraud** | 64 | 504 |
+| **Actual: Fraud** | 11 | 236 |
+
+504 false positives, 11 false negatives, at the F2-optimal threshold used for this specific evaluation run (distinct from the two-tier production threshold - Section 5). Reproducible via python src/train_fraud_model.py.
+
 ## 8. Deployment phases (specified, not yet executed beyond phase 0)
 
 | Phase | Behavior |
