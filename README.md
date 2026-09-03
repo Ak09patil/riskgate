@@ -59,6 +59,17 @@ python -m pytest tests -v
 39 tests, all passing, on both macOS and Windows.
 
 ---
+## Our principles
+
+Not a formal document — the standard every claim in this project, and this README, is actually held to:
+
+1. **Label the source of every number.** Real data and synthetic data answer different questions. Neither is dismissed, but neither is presented as the other.
+2. **Report the honest result, not the flattering one.** Logistic regression beats XGBoost on our *own* synthetic data — that's documented, not hidden, because it's true and it's the reason we validated against real data before trusting the architecture.
+3. **A gap in evidence is reported as a gap, not filled with a guess.** The fairness bootstrap CI shows genuine statistical noise, not "proven fair" — we say exactly that.
+4. **Constants live in one place.** Thresholds are imported, not copy-pasted between the model, the dashboard, and the docs — a change in one place can't silently drift out of sync with a hardcoded copy elsewhere.
+5. **Bugs get documented, not buried.** Every failure listed in `docs/ARCHITECTURE.md` and `docs/DECISION_LOG.md` is real, found through actual testing, not curated for the sake of looking thorough.
+
+---
 
 ## Architecture, briefly
 
