@@ -87,7 +87,7 @@ def best_f2_threshold_and_metrics(y_true, y_proba):
 
 
 MODELS = {
-    "Logistic Regression (current production model)": (
+    "Logistic Regression": (
         LogisticRegression(C=0.1, max_iter=1000, random_state=42), True,
     ),
     "Random Forest": (
@@ -109,7 +109,7 @@ MODELS = {
 
 try:
     import xgboost as xgb
-    MODELS["XGBoost"] = (
+    MODELS["XGBoost (current production model)"] = (
         xgb.XGBClassifier(n_estimators=100, max_depth=4, learning_rate=0.1, random_state=42, eval_metric="logloss"),
         False,
     )

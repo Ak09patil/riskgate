@@ -1,7 +1,7 @@
-# RiskGate — Architecture Documentation
+# RiskGate - Architecture Documentation
 
 Submitted for: **AI Buildathon, Track 2 (AI Risk Manager)**
-This document is structured around the four criteria stated in the buildathon brief — Problem Taste, Build Quality, AI Judgment, Failure Recovery — so each is answered explicitly rather than left to be inferred from the code.
+This document is structured around the four criteria stated in the buildathon brief - Problem Taste, Build Quality, AI Judgment, Failure Recovery. 
 
 ---
 
@@ -27,113 +27,165 @@ This document is structured around the four criteria stated in the buildathon br
     |                                                     |
     |   +-----------+ +-----------+ +-------------+     |
     |   | Fraud-risk | |  Intent-   | | Preference- |     |
-    |   |  (trained, | |  match     | | fit         |     |
-    |   |  validated)| |  (trained, | | (heuristic, |     |
-    |   |            | |  validated)| | labeled as  |     |
+    |   |  (calibrated| |  match     | | fit         |     |
+    |   |  XGBoost,  | |  (trained, | | (heuristic, |     |
+    |   |  validated)| |  validated)| | labeled as  |     |
     |   |            | |            | | such)       |     |
     |   +-----+------+ +-----+------+ +------+------+     |
     |         +--------------+---------------+            |
     |                        v                             |
-    |              +------------------+                    |
-    |              |   GATING LOGIC    |                    |
-    |              +------------------+                    |
+    |         +----------------------------+                |
+    |         |  GATING LOGIC (two-tier)    |                |
+    |         |  circuit breaker ->         |                |
+    |         |  0.45 fraud floor ->        |                |
+    |         |  0.25 ambiguous band +      |                |
+    |         |  bounded trust override ->  |                |
+    |         |  intent-match -> pref-fit   |                |
+    |         +----------------------------+                |
     +------------------------+--------------------------+
                               |
-              +---------------+---------------+----------------+
-              v               v               v                v
-       AUTO_APPROVE   HOLD_FRAUD_REVIEW  HOLD_CONFIRM   HOLD_LIKELY_
-                                          _WITH_HUMAN     MISMATCH
+        +---------+----------+---------+---------+----------+
+        v         v          v         v         v          v
+  AUTO_APPROVE  HOLD_QUICK  HOLD_FRAUD  HOLD_CONFIRM  HOLD_LIKELY_
+                _VERIFY     _REVIEW     _WITH_HUMAN   MISMATCH
 ```
 
-Every arrow in this diagram is a real, running code path — not aspirational. `src/api.py` exposes the pipeline over HTTP; `dashboard/index.html` and `demo/checkout.html` are two live consumers of it (an operator view and a consumer-facing mock respectively).
+Every arrow in this diagram is a real, running code path. `src/api.py` exposes the pipeline over HTTP; `dashboard/index.html` and `demo/checkout.html` are two live consumers of it.
 
 ---
 
 ## 1. Problem Taste
 
-**The literal Track 2 brief** asks for a detector/verifier for one class of loss. The obvious read is "build a fraud model." We didn't stop there, because a narrower read of the actual situation reveals a sharper problem:
 
-Every payment system before agentic checkout had a human perform one physical act — entering a PIN — that silently did two jobs at once: it stopped bad actors, *and* it caught honest mistakes (wrong size, over budget, misread intent) because the human looked at what they were about to buy before confirming it. Agentic checkout removes that human moment entirely. A single fraud score only replaces the first job. Nobody is replacing the second.
+**The literal Track 2 brief asks for a detector/verifier for one class of loss.** The obvious read is "build a fraud model." That read misses where the actual new risk in agentic commerce sits.
 
-That's the gap RiskGate targets: **agent decision-quality risk** — the likelihood that a fully-authorized, non-malicious agent still got it wrong — as a distinct category from fraud, requiring a distinct signal (intent-match) and a distinct response (a quick human confirmation, not a fraud hold).
+**Authorization is not risk.** These are two different questions, and conflating them is the mistake worth naming explicitly. "Is this agent allowed to spend up to ₹2,000 at this merchant?" is an authorization
+question - checked once, upfront, enforced automatically, ideally via a cryptographically-scoped mandate (the direction UAP and AP2-style protocols are converging on: one-time consent with hard limits, rather
+than a PIN prompt on every transaction). "Given this agent IS authorized, is THIS particular transaction likely to be a mistake, a scam, or something that causes a return, dispute, or loss?" is a risk question - 
+and answering it needs judgment, not a rule check. RiskGate is built entirely in that second lane. It assumes the authorization question has already been answered correctly upstream, and evaluates risk *given* that authorization holds.
 
-**One primary build, at real depth — plus three genuine, validated extensions, not a checklist.** Fraud-risk is where the actual depth of this submission lives: it's the only model validated against a real, external dataset (284,807 real transactions, AUC 0.972 — not just our own synthetic split), the only one checked for calibration (found and fixed real overconfidence), the only one audited for geographic fairness (found a real 2.8x outlier, then fixed the root cause via shrinkage — see Build Quality), the only one benchmarked against both a naive rule (F2 0.699 vs. 0.016) and a materially more complex model (XGBoost — tested directly, not assumed; logistic regression matched or beat it). Every one of those is a real, run-able script in `src/`, not a claim.
+**Why that boundary matters** an agent's identity itself can be spoofed or manipulated - a compromised credential, a malicious
+product listing engineering a prompt injection. That's a real threat, and
+it's a security/identity problem, not a risk-scoring problem. RiskGate
+does not claim to solve it. What it distinguishes is "this transaction
+looks statistically unusual" (our job) from "this agent's authorization
+itself might be compromised" (a different system's job, upstream of us).
+Naming this boundary is itself part of the engineering judgment being
+demonstrated here - a system that quietly claimed to cover both would be
+overclaiming.
 
-Intent-match, the abuse-ring sentinel, and the fraud-spike detector are genuine, working, separately-validated capabilities — each has its own held-out precision/recall against real injected ground truth, none of them are stubs. But they're additions built on top of the core fraud-risk work, not three more attempts at the same depth. Intent-match happens to map directly onto the track's own "Return-risk scorer" direction, and the ring/spike detectors happen to match "Abuse-ring sentinel" and "Fraud-spike detector" — worth naming plainly since it's true — but that mapping was a consequence of solving real, adjacent problems as they came up, not a checklist we set out to fill. The reasoning for each is in "AI Judgment" below, and the validated results are in "Build Quality."
+**Inside the risk lane, agentic commerce introduces a genuinely new failure mode.** Every risk system Razorpay runs today - and every direction named in Track 2 itself - is built to catch bad actors: fraud, chargebacks, abuse. That's "is this person trying to cheat us." However, a gap identifies here is that an
+agent can be fully authorized, fully non-malicious, acting in complete good faith, and still cause a return or dispute wave because it misjudged intent: wrong size, optimized for "cheapest under ₹6,000" when the human actually cared about brand, matched a catalog listing that
+looked right but wasn't. Nobody did anything wrong, and the merchant eats the loss exactly as if it were fraud. This is a genuinely new category — **agent decision-quality risk** - not "fraud risk." Current fraud infrastructure has never had to distinguish these, because until agentic
+checkout, a human was always there confirming in the moment. That confirmation step is precisely what agentic checkout removes, and precisely what a single fraud score does not replace.
 
-**Why this isn't redundant with what Razorpay already has:** Razorpay owns Thirdwatch (acquired 2019, now "Mitra") — a mature fraud/RTO product analyzing 200+ signals with merchant-configurable thresholds. Its publicly described signal set (device fingerprinting, address quality, buyer behavior) reads as built for a *human* making the purchasing decision — worth stating precisely: this is an inference from Thirdwatch's public description, not verified internal knowledge of its actual feature set, and if Thirdwatch already has an agent-context signal we're not aware of, this specific framing would need revising. What wouldn't change is the underlying question this project answers regardless: does *any* existing fraud system have a concept of agent authorization scope and intent adherence, distinct from fraud? Publicly, nothing suggests it does. RiskGate is built as a new signal category designed to feed into infrastructure like Thirdwatch, not replace it — covering a case that, as far as we can verify from outside, isn't covered yet.
+**The stakes here are asymmetric, and a real solution has to be explicit about which error it's biased to avoid, not just report both numbers.** Wrongly blocking a legitimate agent transaction costs the merchant a sale and annoys a customer. Wrongly approving a bad one costs money and trust
+ and at scale, could shake confidence in agentic commerce itself, right when NPCI and Razorpay are trying to prove it's safe enough to scale nationally. That tension is not abstract: it's the exact concern behind NPCI's own framing of the problem — "how do we control a machine going
+rogue? We need all parties having that information if something goes wrong." RiskGate's two-tier threshold (see Build Quality) is the concrete answer to that asymmetry: recall is prioritized over precision at the production threshold, deliberately, because a missed fraud costs the full
+order value while an unnecessary quick-verify step costs only friction and that choice is stated and defended, not left implicit in a single undifferentiated score.
 
-**On "strictly defense-only":** nothing in this submission performs or enables an attack — the two scoring models only classify risk, the shopping agent is a benign test harness that proposes purchases within a budget (not an offense tool), and the LLM-phrased pattern narrative only summarizes already-computed facts for a human analyst. Worth addressing directly: this repo publishes exact model weights and thresholds (e.g., `device_ip_consistency: -0.482`, fraud threshold `0.3`), in service of the interpretability argument made in AI Judgment above. Those numbers describe a model trained on **synthetic, self-generated data** — they reveal nothing about Razorpay's real production thresholds, real data, or Thirdwatch's actual 200+ signals, none of which we have access to. Transparency about a prototype's internals is not the same as offense-enabling detail about a real deployed system.
+**One primary build, at real depth, plus three genuine, validated
+extensions not a checklist.** Fraud-risk is where the actual depth of
+this submission lives: the only component validated against a real,
+external dataset (Kaggle Credit Card Fraud, 284,807 real transactions
+see AI Judgment for the migration story this drove), the only one
+checked for calibration, the only one audited for geographic fairness
+with a proper statistical test (bootstrap confidence intervals, not a
+raw ratio), and the only one benchmarked against both a naive rule and
+seven materially different model architectures. Intent-match, the
+abuse-ring sentinel, and the fraud-spike detector are genuine, working,
+separately-validated capabilities each with its own held-out
+precision/recall against real injected ground truth but they're
+extensions built on top of the core work, not three more attempts at the
+same depth.
+
+**Why this isn't redundant with what Razorpay already has:** Razorpay
+owns Thirdwatch (acquired 2019) - a mature fraud/RTO product analyzing
+200+ signals with merchant-configurable thresholds. Its publicly
+described signal set reads as built for a *human* making the purchasing
+decision - this is an inference from Thirdwatch's public description,
+not verified internal knowledge, and would need revising if Thirdwatch
+already has an agent-context signal we're not aware of. RiskGate is built
+as a new signal category designed to feed into infrastructure like
+Thirdwatch, not replace it - per-merchant threshold customization (which
+Thirdwatch already does well) is exactly the kind of capability RiskGate
+should compose with, not duplicate.
+
+**On "strictly defense-only":** nothing in this submission performs or
+enables an attack. This repo publishes exact model weights and
+thresholds, trained on **synthetic, self-generated data** they reveal
+nothing about Razorpay's real production thresholds or Thirdwatch's
+actual signals.
 
 ---
 
 ## 2. Build Quality
 
-**Depth is not evenly spread, and that's deliberate — see "Problem Taste" above.** Fraud-risk carries the weight of this submission: it's the only component checked against a real external dataset, calibration-audited, fairness-audited, and benchmarked against a materially more complex model. The other three (intent-match, abuse-ring, fraud-spike) are each genuinely tested against real, held-out, injected ground truth — not stubs — but at a lighter standard, proportionate to their role as extensions rather than the primary build.
-
 **Two independently validated models, one honest heuristic:**
-- Fraud-risk and intent-match: logistic regression, proper train/test split, 5-fold cross-validation, F2-optimized thresholds (not left at sklearn defaults), stable across 5 random seeds (std ≈ 0.01–0.02), no data leakage (pincode-rate lookup computed train-only, saved as its own artifact).
-- Preference-fit: explicitly labeled a heuristic, not oversold as statistically validated — because there's no clean ground-truth label for "would this customer have preferred this." We tested it directly (see Failure Recovery) rather than assuming it worked.
+- Fraud-risk: calibrated XGBoost (migrated from an initial logistic regression build - see AI Judgment for why), proper train/test split, 5-fold cross-validation, F2-scanned two-tier thresholds, Platt-calibrated, no data leakage (pincode-rate and pincode-ring-rate lookups computed train-only, saved as their own artifacts).
+- Intent-match: logistic regression, same rigor.
+- Preference-fit: explicitly labeled a heuristic, not oversold as statistically validated. Its job is narrowly scoped: not to help a customer spend more happily (a merchandising function, outside Razorpay's lane), but to give the risk gate more context than budget-adherence alone when deciding whether a deviation is a probable mistake or a welcome one.
 
-**Proven against a baseline, not just reported in isolation:** a naive rule ("flag if COD AND device mismatch AND new agent") scores F2 = 0.016 on the held-out test set — it only fires on 0.5% of transactions. The trained model scores F2 = 0.699 on the identical set. This is the evidence that the model earns its complexity rather than being complexity for its own sake.
+**Proven against a baseline:** a naive rule ("flag if COD AND device mismatch AND new agent") scores **F2 = 0.045** on held-out data. The trained model scores **F2 = 0.653** on the identical set — 14.5x better.
 
-**Real end-to-end system, not a notebook:** one unified `score_transaction()` function (`pipeline.py`) that every other component calls — the shopping agent, the batch gating script, the live API, both frontends. Verified reproducible from a genuinely fresh clone (all generated files deleted, full pipeline rerun in order, zero errors) and re-verified independently on a second machine (a different OS/numpy/BLAS build), which is what surfaced and fixed several real bugs (see below).
+**Real end-to-end system, not a notebook:** one unified `score_transaction()` function that every other component calls.
 
-**Automated testing, not just human-read validation:** 36 tests across two tiers — 17 unit tests on individual functions, 19 integration tests on components working together (the shopping agent → RiskGate seam, the live Flask API's actual HTTP routes, regression guards on the two new detectors, a regression guard on model quality itself, and regression guards on both the XGBoost comparison and the full seven-model comparison below, so a future change that silently degrades the model — or silently invalidates the interpretability tradeoff — fails CI instead of shipping). All 36 run automatically on every push via GitHub Actions — see the badge on the repo's README, not just a claim.
+**Automated testing:** **39 tests** across unit and integration tiers, including the bounded trust override's exact conditions, regression guards on both detectors and on model quality itself, and a real concurrent-write regression test (30 simultaneous threads hitting `/record_outcome`, verified not to lose data).
 
-**We went back and closed two of our own named gaps, rather than leaving them as permanent caveats:**
-- **Calibration**: checked directly (`src/calibration_check.py`) — the original model was overconfident (a "0.5–0.6" prediction was only right 34% of the time in reality). Fitted a calibrated version, verified the fix actually worked (Brier score 0.2035 → 0.1764), saved it as a separate artifact rather than silently swapping production.
-- **Fairness**: checked directly (`src/fairness_check.py`) for geographic over-flagging bias, since we have no real demographic attributes to audit and shouldn't manufacture them. First result: one real outlier flagged honest customers at 2.8x what its actual fraud rate justified — reported exactly as found, not smoothed over. Then fixed the root cause (small-sample noise in low-volume pincodes) with empirical-Bayes shrinkage, not just reported the gap: worst case down to 2.42x, and the overall spread across all pincodes tightened (std 0.67 → 0.52) — an automated test now guards against this regressing.
+**We went back and closed our own named gaps:**
+- **Calibration**: raw XGBoost was overconfident (a "0.9" prediction was only actually fraud ~69% of the time). Platt scaling fixed this, verified with a real Brier-score improvement (**0.229 -> 0.194**), baked directly into the production training pipeline.
+- **Fairness**: at the production threshold (0.25), worst-case pincode disparity is **3.44x** but a bootstrap 95% confidence interval (width ~0.31) shows this is **not statistically distinguishable from sampling noise** at current data volume. At threshold 0.20, the same check gives a much narrower CI (~0.16) — that disparity *would* be a confirmed, real bias, part of why 0.20 was rejected despite being F2-optimal.
 
-**Honest, quantified limits that remain, not silence:**
-- The false-positive rate at the F2-optimal threshold is ~69% — an operationally indefensible number at real volume, which is *why* the live product deliberately gates at a separate, business-chosen threshold (0.5), with both numbers labeled everywhere they appear so neither is presented as the other.
-- The synthetic fraud-probability formula's coefficients are grounded in cited, general fraud indicators (device/IP mismatch as the strongest signal, documented COD fraud exposure in India, new-account risk) chosen independent of what makes the reported metric look good — not empirically calibrated against real Razorpay data, which we don't have.
+**Honest, quantified limits that remain:**
+- The F2-optimal threshold on this data is 0.20, not 0.25 we didn't use it, because the flag rate there exceeds 85%, becoming blanket friction on nearly all customers rather than targeted risk-based friction. The production system gates at a two-tier 0.25/0.45 split instead.
+- The synthetic fraud-probability formula's coefficients are grounded in cited, general fraud indicators, not empirically calibrated against real Razorpay data, which we don't have.
 
 ---
 
-## 3. AI Judgment
+## 3. AI judgement
 
-This section states explicitly what was reasoned throughout the build but is otherwise only visible in code comments.
+**On how this was built: 
+Note:  this project was built with AI assistance throughout.
+**The model migration: why we started with logistic regression, and why we moved to XGBoost.** The first working, fully-validated version of this project used logistic regression for fraud-risk - a reasoned choice: a bounded, structured classification problem where an interpretable linear decision boundary is easier to satisfy "every money action explainable, bounded and gated" with than an opaque model.
 
-**On how this was built:** this project was built with heavy AI assistance throughout — a fact stated plainly, not hidden, because the track's own judging criteria explicitly names "AI Judgment" as something to evaluate, which only makes sense if AI-assisted building is the expected mode, not a shortcut to disclose apologetically. The judgment being evaluated isn't "did a human type every line" — it's the decisions documented throughout this file: what to build, what to cut and why, which claims to test rather than assert, and which limitations to name rather than hide. Those decisions, and the discipline of verifying every one of them by actually running the system (see "Failure Recovery"), are the actual work.
+We didn't stop at validating that choice against our own synthetic data. `full_model_comparison.py` tests eight models on identical data, features, and methodology. **On our own synthetic data, every model clusters within normal seed-to-seed noise** (AUC spread 0.662-0.701, natural seed variance std 0.025) — no architecture stands out, XGBoost included. Read alone, this would have kept us on logistic regression indefinitely.
 
-**Why logistic regression, not an LLM call, for the two scoring models.** The task is a bounded, structured classification problem over 4–8 numeric/categorical features. An LLM call here would be slower, non-deterministic, harder to audit (no clean feature-weight explanation for *why* a transaction was flagged), and would not obviously outperform a well-validated linear model on this kind of tabular signal. Razorpay's own bar — "every money action explainable, bounded and gated" — is easier to satisfy with a model whose decision boundary is eight numbers you can print and reason about, not a prompt whose behavior can't be fully audited.
+But we went further and validated the same model choice against a real, external dataset - `held_out_validation.py` against Kaggle's Credit Card Fraud dataset, 284,807 real transactions. There, the result flips decisively: **XGBoost scores F2 = 0.8557 against logistic regression's 0.7073** — a real, large gap, not noise. Real fraud has non-linear feature interactions a linear model structurally can't capture; our synthetic generator produces signal as an additive combination of features (deliberately, for auditable ground truth), which a linear model fits well and real fraud doesn't share.
 
-**The sharper version of this question, and the one worth actually testing rather than just asserting an answer to: why not gradient-boosted trees, or the whole reasonable field of alternatives?** That's the real industry-standard direction for tabular fraud data, and plausibly close to what Thirdwatch itself runs at 200+ features. `src/full_model_comparison.py` tests seven alternatives (Random Forest, Gradient Boosting, XGBoost, LightGBM, SVM, Naive Bayes, KNN) against logistic regression, on identical data, features, split, and threshold-tuning methodology, applied the same way to every model — built specifically so no comparison could be read as one competitor cherry-picked to lose.
+**The honest reading of both results together:** our own synthetic benchmark would have misled the architecture decision. That's specifically why we didn't rely on it alone. We migrated the entire production pipeline on the strength of the real-data result: retrained from scratch with Platt calibration built in, recalibrated every downstream threshold against the new model's actual score distribution, and re-ran every validation script against the new model rather than assuming old results still applied. The two-tier threshold design is itself a product of this migration.
 
-Result, reported both ways, not just the favorable one: by raw AUC, Random Forest scores 0.005 higher — a gap smaller than this model's own measured run-to-run seed variance (std 0.025, from `seed_validation.py`), so not treated as a meaningful difference. By F2 — the metric that actually drives the real threshold decisions in this system, encoding the real cost asymmetry between missing fraud and creating friction for a good customer — **logistic regression is the single highest-scoring model of everything tested**, not merely competitive with the field. Two automated regression tests (`TestFullModelComparisonJustification`) guard both findings independently.
+**Why the shopping agent is rule-based, not agentic.** A CrewAI-style multi-agent system, and an LLM-driven negotiating agent, were both considered and cut. Multi-agent orchestration adds real debugging surface for a part of the system that isn't the actual submission. The negotiation idea was cut for a sharper reason: it would have made RiskGate function as a merchandising nudge, sitting uneasily against Razorpay's public positioning as neutral payments infrastructure.
 
-**The honest limit of this claim, stated directly rather than left implicit:** this holds at this project's data scale (~4,000 rows). More data generally gives higher-flexibility models more real signal to work with relative to a linear model's fixed shape — a general pattern in machine learning, not something this project has tested at larger scale, and not a claim resting on any specific external benchmark, since the specific comparison that would matter here (linear models vs. tree ensembles, at growing data size, on fraud-shaped data) isn't the comparison in any of the tabular-ML literature reviewed for this project. This is deliberately treated as a **staged decision, not a permanent one**: interpretability is the right call for a new problem category with limited data, which agentic-transaction risk currently is industry-wide, not just for this project. The tooling to know when that stops being true already exists and is designed to be rerun as real data accumulates — this isn't a promise to reconsider someday, it's an instrument already built and already tested that would surface the moment the tradeoff needs revisiting.
+**Why preference-fit is a heuristic, not a third trained model.** There is no clean historical label for "would this customer have preferred this deviation" training a model against a fabricated label would be false rigor. Keeping it an explicit, transparent formula is more honest than hiding an equally-uncertain guess behind a model's apparent authority.
 
-**Why the shopping agent is rule-based, not agentic.** Early in this build, a more ambitious design was considered — a CrewAI-style multi-agent system (a "scout" agent finding options, a "finalizer" agent deciding, a "risk" agent judging), and even an LLM-driven agent that would negotiate for the best deal within a customer's taste. Both were deliberately cut. Multi-agent orchestration adds real debugging surface (agent-to-agent handoff failures are notoriously hard to trace) for a part of the system that isn't the actual submission — the shopping agent exists only to prove RiskGate against a realistic scenario. Spending build time hardening an agent framework would have traded away time that needed to go into the two models that *are* the submission. The negotiation/recommendation idea was cut for a sharper reason: it would have made RiskGate function as a merchandising nudge (steering customers toward higher-value purchases), which sits uneasily against Razorpay's public positioning as a neutral payments infrastructure provider, not a merchandising or recommendation business — an inference from how Razorpay describes itself publicly, not a claim about an internal policy we've seen. Even stated that cautiously, it was a real business-judgment catch, not just a scope-management one.
+**Why three scores instead of one.** Collapsing fraud-risk and intent-match into a single number would hide the distinction that actually matters operationally: a bad actor should be blocked; an honest agent's mistake should get a quick human nod. A single score can't express that difference.
 
-**Why preference-fit is a heuristic, not a third trained model.** There is no clean historical label for "would this customer have preferred this deviation" — training a model against a fabricated label would be a false rigor, dressing up a guess as validated fact. Keeping it an explicit, transparent formula (and saying so, everywhere it's described) is more honest than hiding an equally-uncertain guess behind a model's apparent authority.
-
-**Why two scores instead of one.** Collapsing fraud-risk and intent-match into a single number would hide the distinction that actually matters operationally: a bad actor should be blocked; an honest agent's mistake should get a quick human nod. Same underlying event (a flagged transaction), two different causes, two different correct responses — a single score can't express that difference, so the gate would silently pick one behavior for both cases.
-
-**Where an LLM actually is used, and why that's different from the scoring decision.** `src/pattern_narrative.py` uses an LLM exactly once in the whole system, and deliberately not for a decision: it phrases already-computed, deterministic pandas findings (shared-pincode clusters, new-agent bursts across a batch of flagged transactions) into a short readable brief for a fraud analyst. The detection itself never touches the LLM — it's plain groupby logic, auditable and reproducible without any API call. If no API key is configured, the exact same facts are phrased with a clean template instead, so the feature is never dependent on an external service to function. This is the same principle as the scoring decision, applied consistently: use the LLM where it adds real value (turning facts into prose a human can scan fast), not where it would hurt auditability (deciding what the facts are).
+**Where an LLM actually is used.** `pattern_narrative.py` uses an LLM exactly once, and deliberately not for a decision: it phrases already-computed, deterministic findings into a short brief for a fraud analyst. The detection itself never touches the LLM.
 
 ---
 
 ## 4. Failure Recovery
 
-The buildathon's own language asks for evidence of "what broke at 2am, and how you got out." The honest answer here isn't one bug — it's a *pattern* of the same class of bug, found repeatedly by increasing scrutiny, traced to a structural cause, and fixed at the root each time:
+The buildathon's own language asks for evidence of "what broke at 2am, and how you got out." The honest answer isn't one bug - it's a *pattern* of the same class of bug, found repeatedly by increasing scrutiny, traced to a structural cause, fixed at the root each time:
 
-1. **Data leakage** — an early version of the fraud model computed its pincode-risk feature from the full dataset, including test rows. Fixed by computing it train-only and saving it as its own artifact.
-2. **A duplicated gating implementation** — `gating.py` was a second, independent copy of the scoring/gating logic already in `pipeline.py`. This is *why* a threshold change could silently go stale in one copy but not the other (a real, observed bug: the intent-match threshold drifted from 0.65 to 0.55 after a data fix, and only one of the two implementations got updated). Fixed by making `gating.py` a thin wrapper around `pipeline.py` — there is now exactly one gating implementation, and the same staleness bug, found a third time in a validation script, was fixed the same way.
-3. **A causal gap in the synthetic data** — preference-fit was designed to predict real outcomes, but direct correlation testing showed it had essentially zero relationship (−0.013) with actual mismatch/return labels, because the two were generated independently in the data generator. Found by testing the assumption rather than trusting it; fixed by wiring a real causal link, verified afterward (18% vs. 9.5% mismatch rate, a real, detectable effect).
-4. **Cross-platform numerical instability** — training produced silent `RuntimeWarning: overflow` messages on a second machine's numpy/BLAS build (a real quasi-complete-separation issue from deliberately strong synthetic signal), never surfacing in the original development environment. Found only by testing on a genuinely different machine, not assumed fixed from a single environment; fixed with stronger regularization plus a documented safety-net filter, verified with identical reported metrics before and after.
-5. **A broken JavaScript comment** that silently killed the entire dashboard's interactivity — found only by a user actually clicking the button and reporting nothing happened, not by any of the file-level checks that had been run up to that point. Fixed, and a real syntax check (not a weak regex-based structural check) was added to the verification process going forward.
-6. **The same duplication bug, at systemic scale.** Testing a real, targeted hypothesis (does a COD-and-high-value interaction feature add signal beyond the two factors separately?) required updating the shared feature list in `pipeline.py` — which revealed that six other files each had their own hardcoded copy of the same list, not imported from the shared source. All six would have silently kept scoring the old feature set. This wasn't found by inspection; it was found by trying to change something real and then explicitly searching the whole codebase for the same pattern, three separate times, until the search came back clean.
-7. **A real design flaw, not a bug — two "hold" decisions that behaved identically.** `HOLD_CONFIRM_WITH_HUMAN` and `HOLD_LIKELY_MISMATCH` both used to finalize the checkout order regardless of the decision, then explain it *after* the fact — which defeats the entire point of those two outcomes existing separately. Found by a direct question — "why is confirm different from mismatch if neither actually lets the customer confirm anything?" — not by any automated check. Fixed by adding a real pre-purchase confirmation gate, with `HOLD_FRAUD_REVIEW` deliberately kept different: that one still can't be self-cleared by the customer, since a fraud hold needs actual analyst review.
+1. **Data leakage** - an early fraud model computed its pincode-risk feature from the full dataset, including test rows. Fixed by computing it train-only.
+2. **A duplicated gating implementation** `gating.py` was a second, independent copy of `pipeline.py`'s logic, which is why a threshold change silently went stale in one copy but not the other. Fixed by making `gating.py` a thin wrapper.
+3. **A causal gap in the synthetic data** preference-fit was designed to predict real outcomes, but direct correlation testing showed essentially zero relationship (-0.013) with actual mismatch labels, generated independently. Fixed with a real causal link, verified afterward.
+4. **A real design flaw** - two "hold" decisions both used to finalize the checkout order regardless, then explain it after the fact. Fixed by adding a real pre-purchase confirmation gate.
+5. **A Rs 4,00,000 order with clean signals auto-approved** nothing that large exists in training data, so the model had no real basis for a score. The circuit breaker is the only thing catching this, verified with a regression test.
+6. **Cross-platform, found only by testing on genuinely different machines:** `feedback_loop.py` used `fcntl.flock()` Unix-only, would hard-crash on Windows. Fixed by branching on `os.name`. Even after that fix, a concurrent-write test still lost data on Windows specifically: `locking()` doesn't reliably block a second file handle opened by the same process (a documented Windows CRT limitation), and Flask's dev server handles concurrent requests as threads in one process. Fixed with an additional Python-level `threading.Lock()`.
+7. **A model trained on macOS failed to load on Windows** confirmed via testing that file bytes and XGBoost versions were identical on both machines, ruling out corruption or a version mismatch. A genuine cross-machine pickle-portability quirk. `pipeline.py` now catches this and retrains locally, automatically, once.
+8. **`requirements.txt` was missing two real dependencies** (`shap`, `requests`) that two of our own scripts actually import.
 
-The common thread: nearly every one of these was found by *someone actually running the system, questioning an assumption, or trying to extend it* — not by static review alone. That's the practical lesson this build produced: confidence in a system has to come from running it, repeatedly, in conditions you don't fully control, and from being willing to ask "does this actually do what I think it does" even about parts that already looked finished.
+The common thread: nearly every one of these was found by *someone actually running the system on a machine we hadn't already tested on* not by static review alone.
+
+See `docs/DECISION_LOG.md` for the full chronological engineering narrative.
 
 ---
 
 ## What we'd build next, if this continued
 
-- Replace the synthetic fraud data with real dispute/return outcomes and re-derive both models' coefficients empirically rather than from stated priors.
-- Integrate with real agent-authorization scope objects (UAP/AP2-style mandates) instead of conflating authorization with stated intent, as this prototype currently does.
-- Run RiskGate in shadow mode against Thirdwatch's existing traffic to validate precision/recall against real outcomes before any autonomous gating is trusted.
-- Extend to the one named loss class we still deliberately didn't build: a chargeback-evidence responder. A conscious scope choice, not an oversight — catching fraud, mismatch, and coordinated abuse *before* a transaction completes is the higher-leverage intervention point than responding to a chargeback after the fact, and unlike the abuse-ring sentinel and spike detector (both added — see "Build Quality"), a chargeback responder can't be measured with real precision/recall the way the track's own bar demands, since there's no ground-truth "did this evidence packet win the dispute" signal available to us.
+- Replace synthetic fraud data with real dispute/return outcomes.
+- Integrate with real agent-authorization scope objects (UAP/AP2-style mandates) instead of conflating authorization with stated intent, as this prototype currently does - see `docs/SPEC.md`.
+- Run RiskGate in shadow mode against real traffic to validate precision/recall before autonomous gating is trusted - `feedback_loop.py` is a working, minimal version of exactly this mechanism.
+- True online/continual learning is a materially harder, riskier problem (concept drift, catastrophic forgetting, no clean real-time validation) - not attempted here; the shadow-mode feedback loop is the right-sized first step toward it.
