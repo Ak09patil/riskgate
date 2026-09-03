@@ -180,13 +180,13 @@
     <div class="stage" id="stage-held">
       <div class="chat-bubble" id="held-message"></div>
       <a class="btn primary riskgate-link" href="../dashboard/index.html" style="text-decoration:none; text-align:center; display:block;">See what RiskGate did ▸</a>
-      <a class="btn ghost" href="landing.html" style="text-decoration:none; text-align:center; display:block;">Restart demo</a>
+      <a class="btn ghost" href="landing3.html" style="text-decoration:none; text-align:center; display:block;">Restart demo</a>
     </div>
 
     <div class="stage" id="stage-cancelled">
       <div class="chat-bubble">Order cancelled — good call double-checking.</div>
       <a class="btn primary riskgate-link" href="../dashboard/index.html" style="text-decoration:none; text-align:center; display:block;">See what RiskGate did ▸</a>
-      <a class="btn ghost" href="landing.html" style="text-decoration:none; text-align:center; display:block;">Restart demo</a>
+      <a class="btn ghost" href="landing3.html" style="text-decoration:none; text-align:center; display:block;">Restart demo</a>
     </div>
 
     <div class="stage" id="stage-processing">
@@ -200,7 +200,7 @@
       <div class="chat-bubble" id="done-message">Order placed.</div>
       <div class="explanation-card" id="explanation-card" style="display:none;"></div>
       <a class="btn primary riskgate-link" href="../dashboard/index.html" style="text-decoration:none; text-align:center; display:block;">See what RiskGate did ▸</a>
-      <a class="btn ghost" href="landing.html" style="text-decoration:none; text-align:center; display:block;">Restart demo</a>
+      <a class="btn ghost" href="landing3.html" style="text-decoration:none; text-align:center; display:block;">Restart demo</a>
     </div>
 
   </div>
@@ -373,6 +373,7 @@ document.getElementById('submit-intent-btn').addEventListener('click', async () 
       // no button to click through — a fraud hold needs analyst
       // review, not customer self-confirm, so we go straight there
       confirmBtn.style.display = 'none';
+      document.getElementById('clean-cancel-btn').style.display = 'none';
       preActions.style.display = 'none';
       preNote.style.display = 'block';
       preNote.className = 'explanation-card held';
@@ -380,6 +381,7 @@ document.getElementById('submit-intent-btn').addEventListener('click', async () 
       setTimeout(() => routeByDecision(), 1400);
     } else if (decision === 'HOLD_CONFIRM_WITH_HUMAN' || decision === 'HOLD_LIKELY_MISMATCH') {
       confirmBtn.style.display = 'none';
+      document.getElementById('clean-cancel-btn').style.display = 'none';
       preActions.style.display = 'flex';
       preNote.style.display = 'block';
       preNote.className = 'explanation-card held';
@@ -388,6 +390,7 @@ document.getElementById('submit-intent-btn').addEventListener('click', async () 
         : '<span class="why-title">Before you confirm</span>' + getMismatchReason(liveResult);
     } else {
       confirmBtn.style.display = 'block';
+      document.getElementById('clean-cancel-btn').style.display = 'block';
       preActions.style.display = 'none';
       preNote.style.display = 'none';
     }

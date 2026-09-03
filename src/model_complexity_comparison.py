@@ -34,7 +34,6 @@ import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="sklearn")
 
 import pandas as pd
-import joblib
 
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import roc_auc_score, fbeta_score

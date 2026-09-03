@@ -100,7 +100,7 @@ y_proba = model.predict_proba(X_test)[:, 1]
 # --- calibration sanity check, printed every training run so drift is
 # always visible, not just checked once and forgotten ---
 brier = brier_score_loss(y_test, y_proba)
-print(f"=== Calibration check (this run) ===")
+print("=== Calibration check (this run) ===")
 print(f"Brier score: {brier:.4f} (lower is better, 0=perfect)\n")
 
 # --- threshold selection on CALIBRATED probabilities — this is the
