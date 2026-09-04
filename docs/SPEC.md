@@ -200,7 +200,29 @@ this project's current scope. `feedback_loop.py`'s shadow-mode comparison
 is a prerequisite step toward this, not an implementation of it. Listed
 here as future scope, not a silently-omitted gap.
 
-## 10. Design decisions out of scope for this document
+## 10. API schema
+
+All endpoints served by src/api.py, running on http://localhost:5050.
+
+| Endpoint | Method | Request | Response |
+|---|---|---|---|
+| /score | POST | Full transaction object (13 required fields - see Section 6) | fraud_risk_score, intent_match_confidence, preference_fit_score, decision, reason, order_id, agent_id, order_category, order_price, intent_max_price |
+| /full_loop | POST | {category, max_price, key_attribute, allow_over_budget?} - all optional, a random realistic intent is generated if omitted | intent, proposed_product, matched_rule, agent_id, order_id, timestamp, order_category, order_price, intent_max_price, pincode, payment_mode, agent_age_days, device_ip_consistency, user_past_over_budget_kept_rate, plus every /score field |
+| /explain | POST | Same 13 required fields as /score | fraud_risk_score, decision, top_contributing_signals (list of {feature, contribution, value}, sorted by contribution magnitude - see Section 4.1) |
+| /detect_rings | GET | none | rings_detected, rings (list of {ring_id, size, pincode, order_ids}), cache_last_refreshed, validation_against_injected_ground_truth (synthetic data only) |
+| /detect_spikes | GET | none | buckets_flagged, flagged_windows (list of {bucket_start, transaction_count, fraud_rate, z_score}), cache_last_refreshed, validation_against_injected_ground_truth (synthetic data only) |
+| /record_outcome | POST | {order_id, confirmed_fraud, analyst_note?} | {status, order_id} |
+| /feedback_status | GET | none | count, confirmed_fraud_count, confirmed_not_fraud_count, hold_fraud_review_match_rate (or status: no_outcomes_recorded_yet) |
+| /simulate | GET | none | A random real transaction from the dataset, scored - same shape as /score's response |
+| /fraud_batch_narrative | GET | none | narrative (string), narrative_source ("llm" or "template") |
+
+All POST endpoints requiring transaction fields return 400 with an
+explicit {"error": "..."} body on missing/invalid fields, rather than
+a generic 500 - see api.py's validation blocks for the exact checks
+(non-empty body, required fields present, order_price and
+intent_max_price numeric and positive).
+
+## 11. Design decisions out of scope for this document
 
 The following were deliberately excluded from the build; reasoning for
 each is in `docs/ARCHITECTURE.md`:
