@@ -389,6 +389,86 @@ def record_outcome_endpoint():
     return jsonify({"status": "recorded", "order_id": order_id})
 
 
+@app.route("/chargeback_evidence/<order_id>", methods=["GET"])
+def chargeback_evidence(order_id):
+    """
+    Evidence-assembly for a disputed transaction — NOT a full chargeback
+    pipeline (no dispute-letter drafting, no card-network integration,
+    no dispute-status tracking). Deliberately scoped to the one piece
+    that's genuinely reusable from what this project already built:
+    given an order_id, reconstruct exactly what RiskGate knew and
+    decided about it, and why — built entirely on the same
+    explainability infrastructure as explain_fraud_score() (see
+    docs/ARCHITECTURE.md "What we'd build next" for the honest scope
+    boundary between this and a real chargeback-evidence responder).
+
+    Re-scores and re-explains the transaction live, against the
+    current production model, rather than only replaying a stored
+    log — so the evidence is reproducible, not just archived.
+    """
+    df = pd.read_csv(f"{BASE_DIR}/data/transactions.csv")
+    match = df[df["order_id"] == order_id]
+    if match.empty:
+        return jsonify({"error": f"no transaction found with order_id={order_id}"}), 404
+    row = match.iloc[0]
+
+    txn = {
+        "order_price": float(row["order_price"]),
+        "order_category": row["order_category"],
+        "order_key_attribute": row["order_key_attribute"],
+        "payment_mode": row["payment_mode"],
+        "pincode": str(row["pincode"]),
+        "agent_age_days": int(row["agent_age_days"]),
+        "intent_category": row["intent_category"],
+        "intent_max_price": float(row["intent_max_price"]),
+        "intent_key_attribute": row["intent_key_attribute"],
+        "user_historical_category": row["user_historical_category"],
+        "user_past_over_budget_kept_rate": float(row["user_past_over_budget_kept_rate"]),
+        "device_ip_consistency": int(row["device_ip_consistency"]),
+        "user_account_age_days": int(row["user_account_age_days"]),
+    }
+
+    try:
+        from pipeline import explain_fraud_score
+        result = score_transaction(txn)
+        contributions = explain_fraud_score(txn)
+    except Exception as e:
+        return jsonify({"error": f"evidence assembly failed: {e}"}), 400
+
+    recorded_outcome = None
+    import feedback_loop
+    if os.path.exists(feedback_loop.OUTCOMES_LOG):
+        outcomes_df = pd.read_csv(feedback_loop.OUTCOMES_LOG)
+        outcome_match = outcomes_df[outcomes_df["order_id"] == order_id]
+        if not outcome_match.empty:
+            last = outcome_match.iloc[-1]
+            recorded_outcome = {
+                "confirmed_fraud": bool(last["confirmed_fraud"]),
+                "analyst_note": last["analyst_note"],
+                "recorded_at": last["recorded_at"],
+            }
+
+    return jsonify({
+        "order_id": order_id,
+        "order_details": {
+            "order_category": txn["order_category"],
+            "order_price": txn["order_price"],
+            "payment_mode": txn["payment_mode"],
+            "pincode": txn["pincode"],
+            "timestamp": str(row.get("timestamp", "")),
+        },
+        "riskgate_assessment": {
+            "fraud_risk_score": result["fraud_risk_score"],
+            "intent_match_confidence": result["intent_match_confidence"],
+            "preference_fit_score": result["preference_fit_score"],
+            "decision": result["decision"],
+            "reason": result["reason"],
+        },
+        "contributing_signals": contributions,
+        "human_confirmed_outcome": recorded_outcome,
+    })
+
+
 @app.route("/feedback_status", methods=["GET"])
 def feedback_status():
     """Shows how the model's predictions compare against real recorded

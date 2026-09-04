@@ -348,6 +348,58 @@ class TestExplainability:
         assert resp.status_code == 400
 
 
+class TestChargebackEvidence:
+    """Regression tests for the /chargeback_evidence endpoint - the
+    evidence-assembly piece scoped out of a full chargeback pipeline
+    (see docs/ARCHITECTURE.md "What we'd build next")."""
+
+    def test_returns_full_evidence_packet_for_known_order(self, api_client):
+        resp = api_client.get("/chargeback_evidence/txn_000000")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["order_id"] == "txn_000000"
+        assert "order_details" in data
+        assert "riskgate_assessment" in data
+        assert "contributing_signals" in data
+        assert len(data["contributing_signals"]) > 0
+        assert "fraud_risk_score" in data["riskgate_assessment"]
+        assert "decision" in data["riskgate_assessment"]
+
+    def test_returns_404_for_unknown_order(self, api_client):
+        resp = api_client.get("/chargeback_evidence/txn_does_not_exist")
+        assert resp.status_code == 404
+
+    def test_human_confirmed_outcome_present_when_recorded(self, api_client, tmp_path, monkeypatch):
+        """Isolated - records its own outcome against a temp log file
+        (same pattern as TestConcurrentOutcomeRecording) rather than
+        depending on pre-existing state in the real outcomes_log.csv,
+        so this passes identically on a fresh clone."""
+        import feedback_loop
+        test_log = tmp_path / "outcomes_log.csv"
+        monkeypatch.setattr(feedback_loop, "OUTCOMES_LOG", str(test_log))
+
+        record_resp = api_client.post("/record_outcome", json={
+            "order_id": "txn_000000", "confirmed_fraud": True,
+            "analyst_note": "test-recorded outcome",
+        })
+        assert record_resp.status_code == 200
+
+        resp = api_client.get("/chargeback_evidence/txn_000000")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["human_confirmed_outcome"] is not None
+        assert data["human_confirmed_outcome"]["confirmed_fraud"] is True
+
+    def test_human_confirmed_outcome_null_when_none_recorded(self, api_client, tmp_path, monkeypatch):
+        import feedback_loop
+        test_log = tmp_path / "outcomes_log.csv"
+        monkeypatch.setattr(feedback_loop, "OUTCOMES_LOG", str(test_log))
+
+        resp = api_client.get("/chargeback_evidence/txn_000000")
+        assert resp.status_code == 200
+        assert resp.get_json()["human_confirmed_outcome"] is None
+
+
 class TestBackgroundBatchDetection:
     """Regression tests for the ring/spike detection background
     scheduler (see api.py's _run_batch_detection / _background_scheduler).
