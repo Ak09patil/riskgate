@@ -65,6 +65,41 @@ def score():
     return jsonify(result)
 
 
+@app.route("/explain", methods=["POST"])
+def explain():
+    """
+    Per-transaction explainability - which specific signals drove THIS
+    transaction's fraud_risk_score, using SHAP on the same production
+    model /score and /full_loop use to score it. Answers "why was this
+    flagged," not just "was this flagged" - the gap between global
+    feature importance (already reported in train_fraud_model.py's
+    output) and a real, per-transaction explanation a fraud analyst or
+    a merchant can actually act on.
+    """
+    txn = request.get_json()
+    if not txn:
+        return jsonify({"error": "request body must be valid JSON with transaction fields"}), 400
+    required = ["order_price", "order_category", "order_key_attribute", "payment_mode",
+                "pincode", "agent_age_days", "intent_category", "intent_max_price",
+                "intent_key_attribute", "user_historical_category",
+                "user_past_over_budget_kept_rate", "device_ip_consistency",
+                "user_account_age_days"]
+    missing = [f for f in required if f not in txn]
+    if missing:
+        return jsonify({"error": f"missing required fields: {missing}"}), 400
+    try:
+        from pipeline import explain_fraud_score
+        contributions = explain_fraud_score(txn)
+        result = score_transaction(txn)
+    except Exception as e:
+        return jsonify({"error": f"explanation failed: {e}"}), 400
+    return jsonify({
+        "fraud_risk_score": result["fraud_risk_score"],
+        "decision": result["decision"],
+        "top_contributing_signals": contributions,
+    })
+
+
 @app.route("/simulate", methods=["GET"])
 def simulate():
     """Pull a random real transaction's raw fields and score it live

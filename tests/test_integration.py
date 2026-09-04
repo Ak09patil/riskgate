@@ -299,6 +299,55 @@ class TestAPIIntegration:
 # hunt — concurrent writes to the outcomes log silently lost data while
 # reporting success to every caller ---
 
+class TestExplainability:
+    """Regression tests for per-transaction SHAP explainability
+    (pipeline.explain_fraud_score / the /explain endpoint) - answers
+    "why was this transaction flagged," not just "was it flagged."""
+
+    def _make_txn(self, **overrides):
+        base = dict(
+            order_price=3000, order_category="footwear", order_key_attribute="attr_2",
+            intent_category="footwear", intent_max_price=3500, intent_key_attribute="attr_2",
+            payment_mode="COD", pincode="500006", agent_age_days=10,
+            user_historical_category="footwear", user_past_over_budget_kept_rate=0.5,
+            device_ip_consistency=0, user_account_age_days=15,
+        )
+        base.update(overrides)
+        return base
+
+    def test_explain_returns_one_entry_per_fraud_feature(self):
+        from pipeline import explain_fraud_score, FRAUD_FEATURES
+        result = explain_fraud_score(self._make_txn())
+        assert len(result) == len(FRAUD_FEATURES)
+        returned_features = {e["feature"] for e in result}
+        assert returned_features == set(FRAUD_FEATURES)
+
+    def test_explain_sorted_by_contribution_magnitude(self):
+        from pipeline import explain_fraud_score
+        result = explain_fraud_score(self._make_txn())
+        magnitudes = [abs(e["contribution"]) for e in result]
+        assert magnitudes == sorted(magnitudes, reverse=True)
+
+    def test_explain_values_are_json_serializable(self):
+        import json
+        from pipeline import explain_fraud_score
+        result = explain_fraud_score(self._make_txn())
+        json.dumps(result)
+
+    def test_explain_endpoint_returns_valid_response(self, api_client):
+        resp = api_client.post("/explain", json=self._make_txn())
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "fraud_risk_score" in data
+        assert "decision" in data
+        assert "top_contributing_signals" in data
+        assert len(data["top_contributing_signals"]) > 0
+
+    def test_explain_endpoint_rejects_missing_fields(self, api_client):
+        resp = api_client.post("/explain", json={"order_price": 1000})
+        assert resp.status_code == 400
+
+
 class TestBackgroundBatchDetection:
     """Regression tests for the ring/spike detection background
     scheduler (see api.py's _run_batch_detection / _background_scheduler).

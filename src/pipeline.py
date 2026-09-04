@@ -259,17 +259,14 @@ def _load_artifacts():
             _intent_threshold = 0.65
 
 
-def score_transaction(txn: dict) -> dict:
+def _build_feature_row(txn: dict) -> dict:
     """
-    The single entrypoint for the whole system.
-
-    Input: a raw transaction dict with the fields a real integration would
-    have available — order details, agent's stated intent, user history.
-    See docs/SPEC.md for the full field list.
-
-    Output: fraud_risk_score, intent_match_confidence, preference_fit_score,
-    decision, and a plain-English reason — fully explainable, nothing
-    hidden inside a black box.
+    Shared feature-engineering step, used by BOTH score_transaction()
+    and explain_fraud_score() below - kept in exactly one place on
+    purpose (see README "Our principles" #4: constants and derived
+    logic live in one place, not copy-pasted, so a future feature
+    change can't silently drift between the scoring path and the
+    explanation path).
     """
     _load_artifacts()
     pincode_rate_map = _pincode_lookup["pincode_rate_map"]
@@ -285,7 +282,7 @@ def score_transaction(txn: dict) -> dict:
     # high-value COD orders carry meaningfully higher real risk than either
     # factor alone (verified: 43.1% fraud rate for both together vs 33.1%
     # COD-only, 27.4% high-value-only, 17.5% neither, on our synthetic
-    # data) — this lets the model see that combination directly instead
+    # data) - this lets the model see that combination directly instead
     # of only inferring it indirectly from two separate weights.
     row["order_value"] = row["order_price"]
     row["pincode_return_rate"] = pincode_rate_map.get(row["pincode"], global_fraud_rate)
@@ -296,6 +293,69 @@ def score_transaction(txn: dict) -> dict:
     row["category_match"] = int(row["order_category"] == row["intent_category"])
     row["price_within_budget"] = int(row["order_price"] <= row["intent_max_price"])
     row["attribute_match"] = int(row["order_key_attribute"] == row["intent_key_attribute"])
+    return row
+
+
+def explain_fraud_score(txn: dict) -> list:
+    """
+    Per-transaction explainability - the specific signals that drove
+    THIS transaction's fraud_risk_score, not just the model's global
+    feature importance (train_fraud_model.py already reports that,
+    but "device_ip_consistency matters on average" doesn't tell an
+    analyst why any ONE transaction was flagged).
+
+    Same technique as train_fraud_model.py's global SHAP analysis -
+    average SHAP values across all 5 calibration-fold base estimators
+    for stability - applied to a single row instead of a whole test
+    set. Returns signed, per-feature contributions: positive pushes
+    the score toward fraud, negative pushes away from it, sorted by
+    magnitude so the biggest drivers come first.
+    """
+    import shap
+    import numpy as np
+
+    row = _build_feature_row(txn)
+    X_fraud = pd.DataFrame([{k: row[k] for k in FRAUD_FEATURES}])
+
+    all_shap = []
+    for calibrated_clf in _fraud_model.calibrated_classifiers_:
+        base_estimator = calibrated_clf.estimator
+        explainer = shap.TreeExplainer(base_estimator)
+        shap_values = explainer.shap_values(X_fraud)
+        all_shap.append(shap_values[0])
+    mean_shap = np.mean(all_shap, axis=0)
+
+    def _native(v):
+        # SHAP/numpy values (e.g. the shrunk pincode rates) aren't
+        # natively JSON-serializable - cast defensively so this is
+        # always safe to return straight from an API endpoint.
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return v
+
+    explanation = [
+        {"feature": feat, "contribution": round(float(val), 4), "value": _native(row[feat])}
+        for feat, val in zip(FRAUD_FEATURES, mean_shap)
+    ]
+    explanation.sort(key=lambda x: -abs(x["contribution"]))
+    return explanation
+
+
+def score_transaction(txn: dict) -> dict:
+    """
+    The single entrypoint for the whole system.
+
+    Input: a raw transaction dict with the fields a real integration would
+    have available - order details, agent's stated intent, user history.
+    See docs/SPEC.md for the full field list.
+
+    Output: fraud_risk_score, intent_match_confidence, preference_fit_score,
+    decision, and a plain-English reason - fully explainable, nothing
+    hidden inside a black box. For a per-transaction breakdown of exactly
+    which signals drove the fraud_risk_score, see explain_fraud_score().
+    """
+    row = _build_feature_row(txn)
 
     # --- fraud score ---
     X_fraud = pd.DataFrame([{k: row[k] for k in FRAUD_FEATURES}])
