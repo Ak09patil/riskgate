@@ -24,38 +24,38 @@ This document is structured around the four criteria stated in the buildathon br
               (category, budget, attribute)
                           |
                           v
-              +-----------------------+
+               +-----------------------+
               |   SHOPPING AGENT       |   src/shopping_agent.py
               |   (rule-based matcher, |   Test harness only --
               |   NOT the submission)  |   proves RiskGate against
-              +-----------+-----------+   a realistic scenario
+               +-----------+-----------+   a realistic scenario
                           |
-                proposed purchase
+                   proposed purchase
                           |
                           v
-    +-------------------------------------------------+
+     +-------------------------------------------------+
     |              RISKGATE PIPELINE                    |   src/pipeline.py
-    |         (score_transaction -- ONE entrypoint)      |   THE submission
-    |                                                     |
+    |         (score_transaction -- ONE entrypoint)     |   THE submission
+    |                                                   |
     |   +-----------+ +-----------+ +-------------+     |
-    |   | Fraud-risk | |  Intent-   | | Preference- |     |
-    |   |  (calibrated| |  match     | | fit         |     |
-    |   |  XGBoost,  | |  (trained, | | (heuristic, |     |
-    |   |  validated)| |  validated)| | labeled as  |     |
-    |   |            | |            | | such)       |     |
-    |   +-----+------+ +-----+------+ +------+------+     |
-    |         +--------------+---------------+            |
-    |                        v                             |
-    |         +----------------------------+                |
-    |         |  GATING LOGIC (two-tier)    |                |
-    |         |  circuit breaker ->         |                |
-    |         |  0.45 fraud floor ->        |                |
-    |         |  0.25 ambiguous band +      |                |
-    |         |  bounded trust override ->  |                |
-    |         |  intent-match -> pref-fit   |                |
-    |         +----------------------------+                |
+    |   | Fraud-risk | |  Intent-   | | Preference- |   |
+    |   | (calibrated| |  match     | | fit         |   |
+    |   | XGBoost,   | |  (trained, | | (heuristic, |   |
+    |   | validated)n| |  validated)| | labeled as  |   |
+    |   |            | |            | | such)       |   |
+    |   +-----+------+ +-----+------+ +------+------+   |
+    |         +--------------+---------------+          |
+    |                        v                          |
+    |         +----------------------------+            |
+    |         |  GATING LOGIC (two-tier)    |           |
+    |         |  circuit breaker ->         |           |
+    |         |  0.45 fraud floor ->        |           |
+    |         |  0.25 ambiguous band +      |           |
+    |         |  bounded trust override ->  |           |
+    |         |  intent-match -> pref-fit   |           |
+    |         +----------------------------+            |
     +------------------------+--------------------------+
-                              |
+                             |
         +---------+----------+---------+---------+----------+
         v         v          v         v         v          v
   AUTO_APPROVE  HOLD_QUICK  HOLD_FRAUD  HOLD_CONFIRM  HOLD_LIKELY_
