@@ -81,6 +81,14 @@ Two further detection layers — an abuse-ring sentinel and a fraud-spike detect
 
 ---
 
+## False negatives, false positives, and the next phase
+
+**On false negatives (fraud we miss):** A missed fraud costs more than the order value — it can escalate into a formal chargeback dispute, and in serious cases, into legal or arbitration proceedings between merchant, cardholder, and processor, plus real reputational cost at scale. The next phase is direct: as real confirmed outcomes accumulate through the feedback loop, the same threshold-scan methodology used here gets re-run against that real data, not the synthetic estimate — likely lowering the floor threshold further once real cost data exists to justify it.
+
+**On false positives (clean transactions wrongly flagged):** The cost is different but comparably real — analyst time on a transaction that was never risky, customer friction from an unnecessary hold, and at scale, review-queue headcount cost. The next phase is tightening the bounded trust override specifically: it currently requires both a strong kept-rate and a clean device signal together; with more real per-customer history, that bar can be calibrated tighter for genuinely low-risk repeat customers, without loosening it for anyone else.
+
+**Both point to the same underlying next step:** re-derive every threshold against real outcome data once it exists, rather than the synthetic estimate used today.
+
 ## The dashboard
 
 `dashboard/index.html` — standalone with replay data, or live against `src/api.py`.
