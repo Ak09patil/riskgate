@@ -70,28 +70,9 @@ Not a formal document — the standard every claim in this project, and this REA
 5. **Bugs get documented, not buried.** Every failure listed in `docs/ARCHITECTURE.md` and `docs/DECISION_LOG.md` is real, found through actual testing, not curated for the sake of looking thorough.
 
 ---
-
-## Architecture, briefly
-
-One entrypoint, `score_transaction(txn)` in `src/pipeline.py`, computes three scores and gates the result into one of five outcomes (auto-approve, quick-verify, confirm-with-human, fraud review, likely-mismatch). Full gating logic, thresholds, and the bounded trust override mechanism are specified precisely in `docs/SPEC.md` Section 5; the reasoning behind each threshold and the two-tier design is in `docs/ARCHITECTURE.md` Sections 2 and 3.1.
-
-The model itself started as logistic regression and was migrated to calibrated XGBoost after real-data validation showed a large, real gap (F2 0.856 vs. 0.707) that the project's own synthetic benchmark did not show — full story in `docs/ARCHITECTURE.md` Section 3.1, full chronology in `docs/DECISION_LOG.md` Phases 2-3.
-
-Two further detection layers — an abuse-ring sentinel and a fraud-spike detector — catch coordinated abuse and aggregate-rate anomalies that a single transaction's score can't see alone. Both validated against injected ground truth (`docs/SPEC.md` Section 4, `docs/ARCHITECTURE.md` Section 1.4).
-
----
-
-## False negatives, false positives, and the next phase
-
-**On false negatives (fraud we miss):** A missed fraud costs more than the order value — it can escalate into a formal chargeback dispute, and in serious cases, into legal or arbitration proceedings between merchant, cardholder, and processor, plus real reputational cost at scale. The next phase is direct: as real confirmed outcomes accumulate through the feedback loop, the same threshold-scan methodology used here gets re-run against that real data, not the synthetic estimate — likely lowering the floor threshold further once real cost data exists to justify it.
-
-**On false positives (clean transactions wrongly flagged):** The cost is different but comparably real — analyst time on a transaction that was never risky, customer friction from an unnecessary hold, and at scale, review-queue headcount cost. The next phase is tightening the bounded trust override specifically: it currently requires both a strong kept-rate and a clean device signal together; with more real per-customer history, that bar can be calibrated tighter for genuinely low-risk repeat customers, without loosening it for anyone else.
-
-**Both point to the same underlying next step:** re-derive every threshold against real outcome data once it exists, rather than the synthetic estimate used today.
-
 ## AI Risk & Governance Guardrails
 
-This system adheres to the following principles for the responsible use of AI in risk-sensitive contexts:
+The solution has been built , keeping the below responsible AI principles at centre of the design to mitigate Ai risks
 
 **Accountability**
 People remain responsible for every decision. AI can inform and accelerate a decision, but it does not replace human judgment or human ownership of the outcome.
@@ -117,6 +98,26 @@ AI use must follow applicable law, organizational policy, and risk processes —
 - No model would be trained or fine-tuned on an organization's real data without explicit, written agreement on exactly how that data may and may not be used.
 - Access would be logged and restricted to only what's necessary for the task, with a clear deletion policy once the engagement ends.
 - All of this would be governed by a signed confidentiality agreement, not assumed goodwill — the organization's data integrity is protected by contract, not just by intention.
+
+---
+
+## Architecture, briefly
+
+One entrypoint, `score_transaction(txn)` in `src/pipeline.py`, computes three scores and gates the result into one of five outcomes (auto-approve, quick-verify, confirm-with-human, fraud review, likely-mismatch). Full gating logic, thresholds, and the bounded trust override mechanism are specified precisely in `docs/SPEC.md` Section 5; the reasoning behind each threshold and the two-tier design is in `docs/ARCHITECTURE.md` Sections 2 and 3.1.
+
+The model itself started as logistic regression and was migrated to calibrated XGBoost after real-data validation showed a large, real gap (F2 0.856 vs. 0.707) that the project's own synthetic benchmark did not show — full story in `docs/ARCHITECTURE.md` Section 3.1, full chronology in `docs/DECISION_LOG.md` Phases 2-3.
+
+Two further detection layers — an abuse-ring sentinel and a fraud-spike detector — catch coordinated abuse and aggregate-rate anomalies that a single transaction's score can't see alone. Both validated against injected ground truth (`docs/SPEC.md` Section 4, `docs/ARCHITECTURE.md` Section 1.4).
+
+---
+
+## False negatives, false positives, and the next phase
+
+**On false negatives (fraud we miss):** A missed fraud costs more than the order value — it can escalate into a formal chargeback dispute, and in serious cases, into legal or arbitration proceedings between merchant, cardholder, and processor, plus real reputational cost at scale. The next phase is direct: as real confirmed outcomes accumulate through the feedback loop, the same threshold-scan methodology used here gets re-run against that real data, not the synthetic estimate — likely lowering the floor threshold further once real cost data exists to justify it.
+
+**On false positives (clean transactions wrongly flagged):** The cost is different but comparably real — analyst time on a transaction that was never risky, customer friction from an unnecessary hold, and at scale, review-queue headcount cost. The next phase is tightening the bounded trust override specifically: it currently requires both a strong kept-rate and a clean device signal together; with more real per-customer history, that bar can be calibrated tighter for genuinely low-risk repeat customers, without loosening it for anyone else.
+
+**Both point to the same underlying next step:** re-derive every threshold against real outcome data once it exists, rather than the synthetic estimate used today.
 
 ## The dashboard
 
