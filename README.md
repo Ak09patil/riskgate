@@ -89,6 +89,35 @@ Two further detection layers — an abuse-ring sentinel and a fraud-spike detect
 
 **Both point to the same underlying next step:** re-derive every threshold against real outcome data once it exists, rather than the synthetic estimate used today.
 
+## AI Risk & Governance Guardrails
+
+This system adheres to the following principles for the responsible use of AI in risk-sensitive contexts:
+
+**Accountability**
+People remain responsible for every decision. AI can inform and accelerate a decision, but it does not replace human judgment or human ownership of the outcome.
+
+**Transparency**
+Anyone affected by an AI-assisted decision should be able to understand that AI was involved and how it contributed — never a silent or hidden influence on an outcome.
+
+**Privacy & Security**
+Sensitive and organizational data must be protected throughout the AI lifecycle.
+
+**Fairness & Bias**
+AI outputs should be actively checked, not assumed, to ensure people are treated fairly and outcomes aren't driven by biased data or assumptions — a disparity is investigated statistically before being called real or dismissed as noise.
+
+**Reliability & Safety**
+AI outputs should be validated for accuracy and suitability before being relied on for a real decision, and re-validated over time rather than trusted indefinitely from a single evaluation.
+
+**Compliance & Governance**
+AI use must follow applicable law, organizational policy, and risk processes — never operating outside an agreed, governed boundary.
+
+**Today, this system runs entirely on synthetic and publicly available data** — no organization's real, confidential, or customer data has been involved at any stage. The principles above are reflected in the system's design, but the concrete technical and contractual safeguards below are specifically what would be established the moment any real organization's data enters the picture:
+
+- Data would remain within that organization's own environment or an agreed secure boundary — never copied out, retained, or reused beyond the specific engagement it was shared for.
+- No model would be trained or fine-tuned on an organization's real data without explicit, written agreement on exactly how that data may and may not be used.
+- Access would be logged and restricted to only what's necessary for the task, with a clear deletion policy once the engagement ends.
+- All of this would be governed by a signed confidentiality agreement, not assumed goodwill — the organization's data integrity is protected by contract, not just by intention.
+
 ## The dashboard
 
 `dashboard/index.html` — standalone with replay data, or live against `src/api.py`.
