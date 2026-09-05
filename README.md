@@ -19,7 +19,7 @@ When an AI shopping agent buys something on a customer's behalf, it can be fully
 | Spike detection | **54.5% precision/recall**, 167 buckets scanned, 11 flagged | Synthetic, injected ground truth |
 | Calibration | Brier **0.229 -> 0.194** (raw -> Platt-scaled) | Synthetic |
 | Fairness | Worst-case disparity **3.44x**, bootstrap CI shows this is **not** statistically distinguishable from noise | Synthetic |
-| Test suite | **39/39 passing**, macOS and Windows | Real (CI) |
+| Test suite | **52/52 passing**, macOS and Windows | Real (CI) |
 | Throughput | **~168 req/s**, p50 57ms at concurrency 10 | Real (measured) |
 
 Every number is labeled by source (real external data / measured system property, or synthetic self-generated data with injected ground truth where relevant) — neither is presented as the other.
@@ -56,7 +56,7 @@ If the model fails to load on first run, it retrains itself automatically, once 
 ```
 python -m pytest tests -v
 ```
-43 tests, all passing, on both macOS and Windows — all run against mock transaction fixtures (`tests/test_core.py`, `tests/test_integration.py`), no real data or credentials required.
+52 tests, all passing, on both macOS and Windows — all run against mock transaction fixtures (`tests/test_core.py`, `tests/test_integration.py`), no real data or credentials required.
 
 ---
 ## Our principles
@@ -108,7 +108,7 @@ Razorpay already owns Thirdwatch — a mature fraud/RTO product built, as far as
 
 ```
 src/            Core pipeline, models, detectors, API, all analysis scripts
-tests/          39 tests - unit + integration
+tests/          52 tests - unit + integration
 dashboard/      Standalone dashboard (works with or without a live API)
 demo/           Checkout + landing page demo flow
 docs/           SPEC.md, ARCHITECTURE.md, DECISION_LOG.md, citations, experiment writeups

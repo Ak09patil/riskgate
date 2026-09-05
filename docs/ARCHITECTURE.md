@@ -131,7 +131,7 @@ One unified `score_transaction()` function that every component calls — the sh
 
 ### 2.4 Automated testing
 
-**39 tests** across unit and integration tiers: the scoring pipeline, the shopping agent, the bounded trust override's exact conditions, regression guards on both detectors and on model quality itself, and a real concurrent-write regression test (30 simultaneous threads hitting `/record_outcome`, verified not to lose data on either platform tested).
+**52 tests** across unit and integration tiers: the scoring pipeline, the shopping agent, the bounded trust override's exact conditions, regression guards on both detectors and on model quality itself, per-transaction explainability, the chargeback-evidence endpoint, the background batch-detection scheduler, and a real concurrent-write regression test (30 simultaneous threads hitting `/record_outcome`, verified not to lose data on either platform tested).
 
 ### 2.5 Gaps found and closed, not just reported
 

@@ -524,7 +524,7 @@
     <div class="uth-grid">
       <div class="uth-card">
         <div class="uth-icon">\u2713</div>
-        <div class="uth-num">39/39</div>
+        <div class="uth-num">52/52</div>
         <div class="uth-label">tests passing <span class="uth-src">synthetic + real</span></div>
         <div class="uth-detail">Unit + integration, run before every commit tonight - including 3 tests that caught real bugs during the model migration.</div>
       </div>
@@ -2362,7 +2362,7 @@ function renderThresholdExplorer(idx) {
   } else if (d.t < 0.25) {
     verdict.textContent = "Higher recall, but flag rate climbs fast: at 0.20 (the F2-optimal extreme) we'd flag 85%+ of every pincode, which stopped being targeted risk-based friction and became blanket friction on nearly all customers. Rejected for that reason.";
   } else {
-    verdict.textContent = `Higher precision, but recall drops: at ${d.t.toFixed(2)} we'd only catch ${(d.recall * 100).toFixed(0)}% of real fraud, worse than our chosen 79.8%. Recall matters more than precision for fraud specifically, since a missed fraud costs the full order value.`;
+    verdict.textContent = `Higher precision, but recall drops: at ${d.t.toFixed(2)} we'd only catch ${(d.recall * 100).toFixed(0)}% of fraud (per our synthetic is_fraud ground-truth label), worse than our chosen 79.8%. Recall matters more than precision for fraud specifically, since a missed fraud costs the full order value.`;
   }
 }
 
